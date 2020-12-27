@@ -9,6 +9,7 @@ setup(
     version=version,
     description="Yet another bloomfilter implementation in Python",
     long_description=open("README.md").read(),
+    long_description_content_type="text/markdown",
     author="OldPanda",
     author_email="me@old-panda.com",
     license="MIT",
