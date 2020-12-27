@@ -25,4 +25,9 @@ jobs:
         python -m pip install pytest pytest-cov
     - name: Unit tests
       run: |
-        pytest --cov=bloomfilter --cov-report= {posargs:--durations=10 bloomfilter tests}
+        pytest --cov=bloomfilter --cov-report=xml
+    - name: "Upload coverage to Codecov"
+      uses: codecov/codecov-action@v1
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: true
