@@ -25,4 +25,4 @@ jobs:
         python -m pip install pytest
     - name: Unit tests
       run: |
-        pytest
+        pytest --cov=bloomfilter --cov-report= {posargs:--durations=10 bloomfilter tests}
