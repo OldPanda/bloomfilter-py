@@ -10,6 +10,7 @@ setup(
     description="Yet another bloomfilter implementation in Python",
     author="OldPanda",
     author_email="me@old-panda.com",
+    license="MIT",
     packages=find_packages(exclude=("tests", "tests.*")),
     include_package_data=True,
     zip_safe=False,
