@@ -12,6 +12,7 @@ setup(
     long_description_content_type="text/markdown",
     author="OldPanda",
     author_email="me@old-panda.com",
+    url="https://github.com/OldPanda/bloomfilter-py",
     license="MIT",
     packages=find_packages(exclude=("tests", "tests.*")),
     include_package_data=True,
