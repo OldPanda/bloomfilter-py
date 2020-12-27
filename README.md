@@ -6,7 +6,7 @@
 ## Overview
 Yet another Bloomfilter implementation in Python, compatible with Java's Guava library.
 
-I was looking for a Python library which is capable of reading what Bloomfilter of Java's Guava library serializes and is also able to output byte array which is recognizable by Java. But unfortunately failed. Hence I developed this library by borrowing Guava implements Bloomfilter serialization/deserialization steps a lot to deal with Bloomfilters on both Python and Java sides.
+I was looking for a Python library which is capable of reading what Bloomfilter of Java's Guava library serializes and is also able to output byte array which is recognizable by Java. But unfortunately failed. Hence I developed this library by borrowing how Guava implements Bloomfilter serialization/deserialization a lot to deal with Bloomfilters on both Python and Java sides.
 
 As for Bloomfilter usage in Java world, please refer to [this post](https://www.baeldung.com/guava-bloom-filter).
 
