@@ -5,7 +5,7 @@ install_requires = ["bitarray==1.6.1", "murmurhash3==2.3.5"]
 extras_require = {}
 
 setup(
-    name="BloomFilter-py",
+    name="bloomfilter-py",
     version=version,
     description="Yet another bloomfilter implementation in Python",
     author="OldPanda",
