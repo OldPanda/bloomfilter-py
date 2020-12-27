@@ -3,15 +3,12 @@
 
 name: Upload Python Package
 
-on:
-  release:
-    types: [created]
+on: push
 
 jobs:
   deploy:
-
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v2
     - name: Set up Python
