@@ -1,0 +1,125 @@
+import math
+
+from bitarray import bitarray
+from bloomfilter.bloomfilter_strategy import MURMUR128_MITZ_32, MURMUR128_MITZ_64
+
+
+STRATEGIES = [MURMUR128_MITZ_32, MURMUR128_MITZ_64]
+
+
+class BloomFilter(object):
+    """
+    Bloomfilter class.
+
+    :param expected_insertions: Number of elements expected to be inserted into Bloomfilter. Must be non-negative number.
+    :type expected_insertions: int
+    :param err_rate: Error rate of existance checking. Must be between 0.0 and 1.0, both exclusive.
+    :type err_rate: float
+    :param strategy: Hashing strategy.
+    :type strategy: :class:`~bloomfilter.MURMUR128_MITZ_32` or :class:`~bloomfilter.MURMUR128_MITZ_64`. Will use :class:`~bloomfilter.MURMUR128_MITZ_64` by default.
+    """
+
+    def __init__(
+        self, expected_insertions, err_rate, strategy=MURMUR128_MITZ_64, *args, **kwargs
+    ):
+        if err_rate <= 0:
+            raise ValueError("Error rate must be > 0.0")
+        if err_rate >= 1:
+            raise ValueError("Error rate must be < 1.0")
+        if expected_insertions < 0:
+            raise ValueError("Expected insertions must be >= 0")
+        if expected_insertions == 0:
+            expected_insertions = 1
+
+        num_bits = self.num_of_bits(expected_insertions, err_rate)
+        num_hash_functions = self.num_of_hash_functions(expected_insertions, num_bits)
+        data = bitarray("0") * math.ceil(num_bits / 64) * 64
+        self.setup(num_hash_functions, data, strategy)
+
+    def setup(self, num_hash_functions, data, strategy):
+        self.num_hash_functions = num_hash_functions
+        self.data = data
+        self.strategy = strategy
+
+    @classmethod
+    def loads(cls, array):
+        """
+        Initialize Bloomfilter instance given dump bytes.
+
+        :param array: Bloomfilter dumped bytes.
+        :type array: bytes
+        """
+        strategy_ordinal = array[0]
+        if strategy_ordinal >= len(STRATEGIES):
+            raise ValueError(f"Invalid strategy ordinal: {strategy_ordinal}")
+
+        strategy = STRATEGIES[strategy_ordinal]
+        num_hash_functions = array[1]
+        bit_length = int.from_bytes(array[2:6], byteorder="big")
+        data = bitarray()
+        for i in range(0, len(array[6 : bit_length * 8 + 6]), 8):
+            entry = bitarray()
+            entry.frombytes(array[6 + i : 6 + i + 8])
+            data += entry[::-1]
+        instance = cls(0, 0.01, strategy=strategy)
+        instance.setup(num_hash_functions, data, strategy)
+        return instance
+
+    def dumps(self):
+        """
+        Serialize Bloomfilter instance.
+        """
+        result = bytes()
+        result += self.strategy.ordinal().to_bytes(1, byteorder="little")
+        result += self.num_hash_functions.to_bytes(1, byteorder="little")
+        result += math.ceil(len(self.data) / 64).to_bytes(4, byteorder="big")
+        for i in range(0, len(self.data), 64):
+            result += self.data[i : i + 64][::-1]
+        return result
+
+    @classmethod
+    def num_of_bits(cls, expected_insertions, err_rate):
+        """
+        Compute the number of bits required for the Bloomfilter given expected insertions and error rate.
+
+        See `Wikipedia <https://en.wikipedia.org/wiki/Bloom_filter#Probability_of_false_positives>`_ for the formula.
+
+        :param expected_insertsions: Number of expected insertions into the Bloomfilter instance.
+        :type expected_insertsions: int
+        :param err_rate: Error rate of existance checking.
+        :type err_rate: float
+        """
+        if err_rate == 0:
+            err_rate = 2 ** (-1074)  # the same number of Double.MIN_VALUE in Java
+        return int(
+            -expected_insertions * math.log(err_rate) / (math.log(2) * math.log(2))
+        )
+
+    @classmethod
+    def num_of_hash_functions(cls, expected_insertions, num_bits):
+        """
+        Compute the number of hash functions required per each element insertion.
+
+        See `Wikipedia <https://en.wikipedia.org/wiki/Bloom_filter#Probability_of_false_positives>`_ for the formula.
+
+        :param expected_insertsions: Number of expected insertions into the Bloomfilter instance.
+        :type expected_insertsions: int
+        :param num_bits: Number of bits in the Bloomfilter's bits array.
+        :type num_bits: int
+        """
+        return max(1, round(num_bits / expected_insertions * math.log(2)))
+
+    def put(self, key):
+        """
+        Put an element into the Bloomfilter.
+        """
+        return self.strategy.put(key, self.num_hash_functions, self.data)
+
+    def might_contain(self, key):
+        """
+        Return ``True`` if given element exists in Bloomfilter. Otherwise return ``False``.
+        """
+        return self.strategy.might_contain(key, self.num_hash_functions, self.data)
+
+    def __contains__(self, key):
+        return self.might_contain(key)
