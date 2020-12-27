@@ -7,6 +7,10 @@ from bloomfilter.bloomfilter_strategy import MURMUR128_MITZ_32, MURMUR128_MITZ_6
 STRATEGIES = [MURMUR128_MITZ_32, MURMUR128_MITZ_64]
 
 
+
+
+
+
 class BloomFilter(object):
     """
     Bloomfilter class.
