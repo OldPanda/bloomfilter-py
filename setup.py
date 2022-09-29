@@ -1,7 +1,7 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 version = "dev"
-install_requires = ["bitarray==1.6.1", "mmh3==2.5.1"]
+install_requires = ["bitarray==2.6.0", "mmh3==3.0.0"]
 extras_require = {}
 
 setup(
@@ -18,7 +18,7 @@ setup(
     include_package_data=True,
     zip_safe=False,
     classifiers=[
-        "Development Status :: 4 - Beta",
+        "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python",
