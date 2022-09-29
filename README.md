@@ -2,6 +2,7 @@
 ![](https://img.shields.io/pypi/v/bloomfilter-py.svg)
 ![](https://img.shields.io/pypi/pyversions/bloomfilter-py.svg)
 [![codecov](https://codecov.io/gh/OldPanda/bloomfilter-py/branch/master/graph/badge.svg?token=RBX1JK7P7O)](https://codecov.io/gh/OldPanda/bloomfilter-py)
+[![Downloads](https://pepy.tech/badge/bloomfilter-py)](https://pepy.tech/project/bloomfilter-py)
 
 ## Overview
 Yet another Bloomfilter implementation in Python, compatible with Java's Guava library.
