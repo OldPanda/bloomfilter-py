@@ -86,7 +86,6 @@ class BloomFilter(object):
         """
         return cls.loads(base64.b64decode(base64_encoded_bytes))
 
-    @classmethod
     def dumps(self) -> bytes:
         """
         Serialize BloomFilter instance to bytes.
