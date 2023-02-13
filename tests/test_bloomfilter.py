@@ -1,3 +1,4 @@
+import random
 import unittest
 
 from bloomfilter import BloomFilter
@@ -109,3 +110,59 @@ class BloomFilterTest(unittest.TestCase):
                 bloom_filter.might_contain(i),
                 f"Number {i} is expected to be in bloomfilter",
             )
+
+    def test_dumps_to_hex(self):
+        bloom_filter = BloomFilter(500, 0.0001, MURMUR128_MITZ_32)
+        for _ in range(100):
+            bloom_filter.put(random.randint(100000000, 10000000000))
+        hex_string = bloom_filter.dumps_to_hex()
+        new_filter = BloomFilter.loads_from_hex(hex_string)
+
+        self.assertEqual(
+            new_filter.num_hash_functions,
+            bloom_filter.num_hash_functions,
+            "New filter's num of hash functions is expected to be the same as old filter's",
+        )
+        self.assertEqual(
+            new_filter.strategy,
+            bloom_filter.strategy,
+            "New filter's strategy is expected to be the same as old filter's",
+        )
+        self.assertEqual(
+            new_filter.data,
+            bloom_filter.data,
+            "New filter's data is expected to be the same as old filter's",
+        )
+        self.assertEqual(
+            new_filter.dumps_to_hex(),
+            hex_string,
+            "New filter's dump is expected to be the same as old filter's",
+        )
+
+    def test_dumps_to_base64(self):
+        bloom_filter = BloomFilter(500, 0.0001, MURMUR128_MITZ_32)
+        for _ in range(100):
+            bloom_filter.put(random.randint(100000000, 10000000000))
+        base64_encoded = bloom_filter.dumps_to_base64()
+        new_filter = BloomFilter.loads_from_base64(base64_encoded)
+
+        self.assertEqual(
+            new_filter.num_hash_functions,
+            bloom_filter.num_hash_functions,
+            "New filter's num of hash functions is expected to be the same as old filter's",
+        )
+        self.assertEqual(
+            new_filter.strategy,
+            bloom_filter.strategy,
+            "New filter's strategy is expected to be the same as old filter's",
+        )
+        self.assertEqual(
+            new_filter.data,
+            bloom_filter.data,
+            "New filter's data is expected to be the same as old filter's",
+        )
+        self.assertEqual(
+            new_filter.dumps_to_base64(),
+            base64_encoded,
+            "New filter's dump is expected to be the same as old filter's",
+        )

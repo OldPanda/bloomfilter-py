@@ -1,3 +1,4 @@
+import base64
 import math
 
 from bitarray import bitarray
@@ -42,11 +43,11 @@ class BloomFilter(object):
         self.strategy = strategy
 
     @classmethod
-    def loads(cls, array):
+    def loads(cls, array: bytes) -> "BloomFilter":
         """
         Initialize Bloomfilter instance given dump bytes.
 
-        :param array: Bloomfilter dumped bytes.
+        :param array: BloomFilter dumped bytes.
         :type array: bytes
         """
         strategy_ordinal = array[0]
@@ -65,9 +66,29 @@ class BloomFilter(object):
         instance.setup(num_hash_functions, data, strategy)
         return instance
 
-    def dumps(self):
+    @classmethod
+    def loads_from_hex(cls, hex_str: str) -> "BloomFilter":
         """
-        Serialize Bloomfilter instance.
+        Initialize Bloomfilter instance from hex string.
+
+        :param hex_str: BloomFilter dumped hex string.
+        :type hex_str: str
+        """
+        return cls.loads(bytes.fromhex(hex_str))
+
+    @classmethod
+    def loads_from_base64(cls, base64_encoded_bytes: bytes) -> "BloomFilter":
+        """
+        Initialize Bloomfilter instance from base64 encoded bytes.
+
+        :param base64_encoded_bytes: BloomFilter dumped bytes encoded in base64.
+        :type base64_encoded_bytes: bytes
+        """
+        return cls.loads(base64.b64decode(base64_encoded_bytes))
+
+    def dumps(self) -> bytes:
+        """
+        Serialize BloomFilter instance to bytes.
         """
         result = bytes()
         result += self.strategy.ordinal().to_bytes(1, byteorder="little")
@@ -76,6 +97,18 @@ class BloomFilter(object):
         for i in range(0, len(self.data), 64):
             result += self.data[i : i + 64][::-1]
         return result
+
+    def dumps_to_hex(self) -> str:
+        """
+        Serialize BloomFilter instance to hex string.
+        """
+        return self.dumps().hex()
+
+    def dumps_to_base64(self) -> bytes:
+        """
+        Serialize BloomFilter instance to base64 encoded bytes.
+        """
+        return base64.b64encode(self.dumps())
 
     @classmethod
     def num_of_bits(cls, expected_insertions, err_rate):
