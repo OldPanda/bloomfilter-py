@@ -40,6 +40,7 @@ False
 ```
 
 ### Serialize Bloomfilter
+You can easily serialize `BloomFilter` instance to a byte array
 ```Python
 >>> dumps = bloom_filter.dumps()
 >>> with open("dumps.out", "wb") as f:
@@ -48,7 +49,18 @@ False
 >>>
 ```
 
+or to a hex string
+```Python
+>>> hex_str = bloom_filter.dumps_to_hex()
+```
+
+or to a base64 encoded bytes
+```Python
+base64_bytes = bloom_filter.dumps_to_base64()
+```
+
 ### Deserialize Bloomfilter
+And you can easily initialize a `BloomFilter` instance from a byte array
 ```Python
 >>> with open("dumps.out", "rb") as f:
 ...     bf = BloomFilter.loads(f.read())
@@ -58,4 +70,26 @@ True
 >>> 100 in bf
 False
 >>>
+```
+
+or from a hex string
+```Python
+>>> bf = BloomFilter.loads_from_hex(hex_str)
+>>> 1 in bf
+True
+>>> 100 in bf
+False
+```
+
+or from a base64 encoded bytes
+```Python
+>>> bf = BloomFilter.loads_from_base64(base64_bytes)
+>>> 100 in bf
+False
+>>> 200 in bf
+False
+>>> 1 in bf
+True
+>>> 99 in bf
+True
 ```
