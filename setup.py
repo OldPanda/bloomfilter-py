@@ -1,7 +1,7 @@
 from setuptools import find_packages, setup
 
 version = "dev"
-install_requires = ["bitarray==2.6.0", "mmh3==3.0.0"]
+install_requires = ["bitarray==2.7.6", "mmh3==3.1.0"]
 extras_require = {}
 
 setup(
