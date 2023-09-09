@@ -2,36 +2,36 @@
 requires = ["setuptools", "wheel"]
 
 [project]
-name = "bloomfilter-py"
-version = "1.dev0"
-description = "Yet another bloomfilter implementation in Python"
-readme = {file = "README.md", content-type = "text/markdown"}
-requires-python = ">=3.7"
-license = {file = "LICENSE"}
 authors = [
-    {name = "OldPanda", email = "me@old-panda.com"}
+  {name = "OldPanda", email = "me@old-panda.com"},
 ]
-keywords = ["bloomfilter"]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Operating System :: OS Independent",
-    "Topic :: Software Development :: Libraries :: Python Modules"
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.7",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Operating System :: OS Independent",
+  "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "bitarray==2.7.6",
-    "mmh3==3.1.0"
+  "bitarray==2.7.6",
+  "mmh3==3.1.0",
 ]
+description = "Yet another bloomfilter implementation in Python"
+keywords = ["bloomfilter"]
+license = {file = "LICENSE"}
+name = "bloomfilter-py"
+readme = {file = "README.md", content-type = "text/markdown"}
+requires-python = ">=3.7"
+version = "1.dev0"
 
 [project.urls]
-Homepage = "https://github.com/OldPanda/bloomfilter-py"
 Documentation = "https://github.com/OldPanda/bloomfilter-py/blob/master/README.md"
+Homepage = "https://github.com/OldPanda/bloomfilter-py"
 Repository = "https://github.com/OldPanda/bloomfilter-py.git"
