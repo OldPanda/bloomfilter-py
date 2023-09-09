@@ -15,7 +15,9 @@ jobs:
         uses: actions/setup-python@v2
 
       - name: Install Python dependencies
-        run: pip install black
+        run: |
+          pip install black \
+          pip install mypy
 
       - name: Run linter
         uses: wearerequired/lint-action@v2
