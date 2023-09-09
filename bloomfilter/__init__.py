@@ -1,1 +1,1 @@
-from bloomfilter.bloomfilter import BloomFilter
+from bloomfilter.bloomfilter import BloomFilter  # noqa: F401

@@ -28,3 +28,4 @@ jobs:
           auto_fix: true
       - name: Run ruff linter
         uses: chartboost/ruff-action@v1
+        args: check --fix

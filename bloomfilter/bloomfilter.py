@@ -12,12 +12,14 @@ class BloomFilter(object):
     """
     Bloomfilter class.
 
-    :param expected_insertions: Number of elements expected to be inserted into Bloomfilter. Must be non-negative number.
+    :param expected_insertions: Number of elements expected to be inserted into Bloomfilter.
+                                Must be non-negative number.
     :type expected_insertions: int
     :param err_rate: Error rate of existance checking. Must be between 0.0 and 1.0, both exclusive.
     :type err_rate: float
     :param strategy: Hashing strategy.
-    :type strategy: :class:`~bloomfilter.MURMUR128_MITZ_32` or :class:`~bloomfilter.MURMUR128_MITZ_64`. Will use :class:`~bloomfilter.MURMUR128_MITZ_64` by default.
+    :type strategy: :class:`~bloomfilter.MURMUR128_MITZ_32` or :class:`~bloomfilter.MURMUR128_MITZ_64`.
+                    Will use :class:`~bloomfilter.MURMUR128_MITZ_64` by default.
     """
 
     def __init__(
