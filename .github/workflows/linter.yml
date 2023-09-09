@@ -9,7 +9,7 @@ jobs:
 
     steps:
       - name: Check out Git repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v2
@@ -17,9 +17,12 @@ jobs:
       - name: Install Python dependencies
         run: pip install black
 
-      - name: Run linters
+      - name: Run linter
         uses: wearerequired/lint-action@v2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           black: true
+          mypy: true
           auto_fix: true
+      - name: Run ruff linter
+        uses: chartboost/ruff-action@v1
