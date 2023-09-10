@@ -30,8 +30,6 @@ class BloomFilter:
         expected_insertions: int,
         err_rate: float,
         strategy: typing.Type[Strategy] = MURMUR128_MITZ_64,
-        *args,
-        **kwargs,
     ):
         if err_rate <= 0:
             raise ValueError("Error rate must be > 0.0")
@@ -49,7 +47,7 @@ class BloomFilter:
 
     def setup(
         self, num_hash_functions: int, data: bitarray, strategy: typing.Type[Strategy]
-    ):
+    ) -> None:
         self.num_hash_functions = num_hash_functions
         self.data = data
         self.strategy = strategy
@@ -154,17 +152,17 @@ class BloomFilter:
         """
         return max(1, round(num_bits / expected_insertions * math.log(2)))
 
-    def put(self, key):
+    def put(self, key: typing.Union[int, str]) -> bool:
         """
         Put an element into the Bloomfilter.
         """
         return self.strategy.put(key, self.num_hash_functions, self.data)
 
-    def might_contain(self, key):
+    def might_contain(self, key: typing.Union[int, str]) -> bool:
         """
         Return ``True`` if given element exists in Bloomfilter. Otherwise return ``False``.
         """
         return self.strategy.might_contain(key, self.num_hash_functions, self.data)
 
-    def __contains__(self, key):
+    def __contains__(self, key: typing.Union[int, str]) -> bool:
         return self.might_contain(key)

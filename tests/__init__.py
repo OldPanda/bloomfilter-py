@@ -1,11 +1,11 @@
 import os
 
-guava_file_dir = os.path.join(
+guava_file_dir: str = os.path.join(
     os.path.abspath(os.path.dirname(__file__)), "guava_dump_files"
 )
 
 
-def read_data(filename):
+def read_data(filename: str) -> bytes:
     """
     Read Bloomfilter serialized data from Guava's dump file.
 

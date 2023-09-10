@@ -13,7 +13,9 @@ class Strategy(ABC):
 
     @classmethod
     @abstractmethod
-    def put(cls, key: typing.Union[int, str], num_hash_functions: int, array: bitarray):
+    def put(
+        cls, key: typing.Union[int, str], num_hash_functions: int, array: bitarray
+    ) -> bool:
         pass
 
     @classmethod
@@ -31,7 +33,9 @@ class Strategy(ABC):
 
 class MURMUR128_MITZ_32(Strategy):
     @classmethod
-    def put(cls, key: typing.Union[int, str], num_hash_functions: int, array: bitarray):
+    def put(
+        cls, key: typing.Union[int, str], num_hash_functions: int, array: bitarray
+    ) -> bool:
         bit_size = len(array)
         if isinstance(key, int):
             if cls.INT_MIN <= key <= cls.INT_MAX:
@@ -58,7 +62,7 @@ class MURMUR128_MITZ_32(Strategy):
     @classmethod
     def might_contain(
         cls, key: typing.Union[int, str], num_hash_functions: int, array: bitarray
-    ):
+    ) -> bool:
         bit_size = len(array)
         if isinstance(key, int):
             if cls.INT_MIN <= key <= cls.INT_MAX:
@@ -87,7 +91,9 @@ class MURMUR128_MITZ_32(Strategy):
 
 class MURMUR128_MITZ_64(Strategy):
     @classmethod
-    def put(cls, key: typing.Union[int, str], num_hash_functions: int, array: bitarray):
+    def put(
+        cls, key: typing.Union[int, str], num_hash_functions: int, array: bitarray
+    ) -> bool:
         bit_size = len(array)
         if isinstance(key, int):
             if cls.INT_MIN <= key <= cls.INT_MAX:
@@ -110,7 +116,7 @@ class MURMUR128_MITZ_64(Strategy):
     @classmethod
     def might_contain(
         cls, key: typing.Union[int, str], num_hash_functions: int, array: bitarray
-    ):
+    ) -> bool:
         bit_size = len(array)
         if isinstance(key, int):
             if cls.INT_MIN <= key <= cls.INT_MAX:
