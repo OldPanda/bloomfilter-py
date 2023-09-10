@@ -15,11 +15,14 @@ jobs:
         uses: actions/setup-python@v2
 
       - name: Install Python dependencies
-        run: pip install black
+        run: |
+          pip install black \
+          pip install mypy
 
       - name: Run linters
         uses: wearerequired/lint-action@v2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           black: true
+          mypy: true
           auto_fix: true

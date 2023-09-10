@@ -7,7 +7,7 @@ from tests import read_data
 
 
 class BloomFilterTest(unittest.TestCase):
-    def test_num_of_bits(self):
+    def test_num_of_bits(self) -> None:
         test_cases = [(500, 0.01, 4792), (500, 0.0, 774727), (10, 0.01, 95)]
         for case in test_cases:
             num_bits = BloomFilter.num_of_bits(case[0], case[1])
@@ -15,7 +15,7 @@ class BloomFilterTest(unittest.TestCase):
                 num_bits, case[2], f"Expected {case[2]} bits, but got {num_bits}"
             )
 
-    def test_num_of_hash_functions(self):
+    def test_num_of_hash_functions(self) -> None:
         test_cases = [(500, 4792, 7), (500, 774727, 1074)]
         for case in test_cases:
             num_hash_functions = BloomFilter.num_of_hash_functions(case[0], case[1])
@@ -25,7 +25,7 @@ class BloomFilterTest(unittest.TestCase):
                 f"Expected {case[2]} hash functions, but got {num_hash_functions}",
             )
 
-    def test_basic_functionality(self):
+    def test_basic_functionality(self) -> None:
         bloom_filter = BloomFilter(10000000, 0.001)
         for i in range(200):
             bloom_filter.put(i)
@@ -54,7 +54,7 @@ class BloomFilterTest(unittest.TestCase):
             "Word 'not_exist' is expected to be in bloomfilter",
         )
 
-    def test_dumps(self):
+    def test_dumps(self) -> None:
         bloom_filter = BloomFilter(300, 0.0001, MURMUR128_MITZ_32)
         for i in range(100):
             bloom_filter.put(i)
@@ -82,7 +82,7 @@ class BloomFilterTest(unittest.TestCase):
             "New filter's dump is expected to be the same as old filter's",
         )
 
-    def test_guava_compatibility(self):
+    def test_guava_compatibility(self) -> None:
         bloom_filter = BloomFilter.loads(read_data("500_0_01_0_to_99_test.out"))
         num_bits = BloomFilter.num_of_bits(500, 0.01)
         num_hash_functions = BloomFilter.num_of_hash_functions(500, num_bits)
@@ -111,7 +111,7 @@ class BloomFilterTest(unittest.TestCase):
                 f"Number {i} is expected to be in bloomfilter",
             )
 
-    def test_dumps_to_hex(self):
+    def test_dumps_to_hex(self) -> None:
         bloom_filter = BloomFilter(500, 0.0001, MURMUR128_MITZ_32)
         for _ in range(100):
             bloom_filter.put(random.randint(100000000, 10000000000))
@@ -139,7 +139,7 @@ class BloomFilterTest(unittest.TestCase):
             "New filter's dump is expected to be the same as old filter's",
         )
 
-    def test_dumps_to_base64(self):
+    def test_dumps_to_base64(self) -> None:
         bloom_filter = BloomFilter(500, 0.0001, MURMUR128_MITZ_32)
         for _ in range(100):
             bloom_filter.put(random.randint(100000000, 10000000000))
