@@ -1,14 +1,19 @@
 import base64
 import math
+import typing
 
 from bitarray import bitarray
-from bloomfilter.bloomfilter_strategy import MURMUR128_MITZ_32, MURMUR128_MITZ_64
+from bloomfilter.bloomfilter_strategy import (
+    Strategy,
+    MURMUR128_MITZ_32,
+    MURMUR128_MITZ_64,
+)
 
 
-STRATEGIES = [MURMUR128_MITZ_32, MURMUR128_MITZ_64]
+STRATEGIES: typing.List[typing.Type[Strategy]] = [MURMUR128_MITZ_32, MURMUR128_MITZ_64]
 
 
-class BloomFilter(object):
+class BloomFilter:
     """
     Bloomfilter class.
 
@@ -21,7 +26,12 @@ class BloomFilter(object):
     """
 
     def __init__(
-        self, expected_insertions, err_rate, strategy=MURMUR128_MITZ_64, *args, **kwargs
+        self,
+        expected_insertions: int,
+        err_rate: float,
+        strategy: typing.Type[Strategy] = MURMUR128_MITZ_64,
+        *args,
+        **kwargs,
     ):
         if err_rate <= 0:
             raise ValueError("Error rate must be > 0.0")
@@ -37,7 +47,9 @@ class BloomFilter(object):
         data = bitarray("0") * math.ceil(num_bits / 64) * 64
         self.setup(num_hash_functions, data, strategy)
 
-    def setup(self, num_hash_functions, data, strategy):
+    def setup(
+        self, num_hash_functions: int, data: bitarray, strategy: typing.Type[Strategy]
+    ):
         self.num_hash_functions = num_hash_functions
         self.data = data
         self.strategy = strategy
@@ -95,7 +107,7 @@ class BloomFilter(object):
         result += self.num_hash_functions.to_bytes(1, byteorder="little")
         result += math.ceil(len(self.data) / 64).to_bytes(4, byteorder="big")
         for i in range(0, len(self.data), 64):
-            result += self.data[i : i + 64][::-1]
+            result += self.data[i : i + 64][::-1].tobytes()
         return result
 
     def dumps_to_hex(self) -> str:
@@ -111,7 +123,7 @@ class BloomFilter(object):
         return base64.b64encode(self.dumps())
 
     @classmethod
-    def num_of_bits(cls, expected_insertions, err_rate):
+    def num_of_bits(cls, expected_insertions: int, err_rate: float) -> int:
         """
         Compute the number of bits required for the Bloomfilter given expected insertions and error rate.
 
@@ -129,7 +141,7 @@ class BloomFilter(object):
         )
 
     @classmethod
-    def num_of_hash_functions(cls, expected_insertions, num_bits):
+    def num_of_hash_functions(cls, expected_insertions: int, num_bits: int) -> int:
         """
         Compute the number of hash functions required per each element insertion.
 
