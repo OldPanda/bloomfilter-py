@@ -22,4 +22,5 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           black: true
+          mypy: true
           auto_fix: true
