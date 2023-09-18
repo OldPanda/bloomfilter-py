@@ -19,10 +19,13 @@ jobs:
           pip install black \
           pip install mypy
 
-      - name: Run linters
+      - name: Run Black linters
         uses: wearerequired/lint-action@v2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           black: true
-          mypy: true
           auto_fix: true
+
+      - name: Run mypy
+        run: |
+          mypy bloomfilter/ --strict
