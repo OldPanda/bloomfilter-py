@@ -9,20 +9,26 @@ jobs:
 
     steps:
       - name: Check out Git repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
       - name: Install Python dependencies
         run: |
           pip install black \
-          pip install mypy
+          pip install mypy \
+          pip install .
 
-      - name: Run linters
+      - name: Run black
         uses: wearerequired/lint-action@v2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           black: true
-          mypy: true
           auto_fix: true
+
+      - name: Run mypy
+        run: |
+          mypy bloomfilter/ --strict
