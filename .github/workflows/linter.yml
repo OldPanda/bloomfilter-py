@@ -19,7 +19,8 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install black \
-          pip install mypy
+          pip install mypy \
+          pip install .
 
       - name: Run linters
         uses: wearerequired/lint-action@v2
