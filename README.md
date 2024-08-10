@@ -14,9 +14,7 @@ As for Bloomfilter usage in Java world, please refer to [this post](https://www.
 Here's a brief [introduction](https://en.wikipedia.org/wiki/Bloom_filter) to Bloomfilter.
 
 ## Requirements
-* Python 3.7+
-
-This library is not tested under Python 3.6 and lower versions.
+* Python 3.8+
 
 ## Install
 ```
