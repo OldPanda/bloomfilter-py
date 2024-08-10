@@ -29,7 +29,7 @@ license = {file = "LICENSE"}
 name = "bloomfilter-py"
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.8"
-version = "1.dev0"
+version = "1.1.0"
 
 [project.urls]
 Documentation = "https://github.com/OldPanda/bloomfilter-py/blob/master/README.md"
