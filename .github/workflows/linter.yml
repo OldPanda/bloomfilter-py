@@ -17,10 +17,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install Python dependencies
-        run: |
-          pip install black \
-          pip install mypy \
-          pip install .
+        run: pip install black mypy
 
       - name: Run black
         uses: wearerequired/lint-action@v2
