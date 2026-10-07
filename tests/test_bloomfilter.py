@@ -1,6 +1,8 @@
 import random
 import unittest
+from unittest.mock import patch
 
+from bitarray import bitarray
 from bloomfilter import BloomFilter
 from bloomfilter.bloomfilter_strategy import MURMUR128_MITZ_32, MURMUR128_MITZ_64
 from tests import read_data
@@ -133,6 +135,19 @@ class BloomFilterTest(unittest.TestCase):
     def test_rejects_unserializable_hash_function_count(self) -> None:
         with self.assertRaisesRegex(ValueError, "hash functions"):
             BloomFilter(1, 5e-324)
+
+    def test_setup_rejects_invalid_state(self) -> None:
+        bloom_filter = BloomFilter(100, 0.01)
+
+        with self.assertRaisesRegex(ValueError, "hash functions"):
+            bloom_filter.setup(0, bitarray(64), MURMUR128_MITZ_64)
+        with self.assertRaisesRegex(ValueError, "must not be empty"):
+            bloom_filter.setup(1, bitarray(), MURMUR128_MITZ_64)
+        with self.assertRaisesRegex(ValueError, "multiple of 64"):
+            bloom_filter.setup(1, bitarray(65), MURMUR128_MITZ_64)
+        with patch.object(BloomFilter, "MAX_NUM_BITS", 64):
+            with self.assertRaisesRegex(ValueError, "maximum"):
+                bloom_filter.setup(1, bitarray(128), MURMUR128_MITZ_64)
 
     def test_guava_compatibility(self) -> None:
         bloom_filter = BloomFilter.loads(read_data("500_0_01_0_to_99_test.out"))
