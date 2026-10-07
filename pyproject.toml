@@ -20,8 +20,10 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-  "bitarray==2.9.2",
-  "mmh3==4.1.0",
+  "bitarray==3.11.0",
+  "mmh3==5.0.1; python_version < '3.9'",
+  "mmh3==5.2.0; python_version >= '3.9' and python_version < '3.10'",
+  "mmh3==5.3.1; python_version >= '3.10'",
 ]
 description = "Yet another bloomfilter implementation in Python"
 keywords = ["bloomfilter"]
