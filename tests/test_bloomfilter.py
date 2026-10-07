@@ -2,7 +2,7 @@ import random
 import unittest
 
 from bloomfilter import BloomFilter
-from bloomfilter.bloomfilter_strategy import MURMUR128_MITZ_32
+from bloomfilter.bloomfilter_strategy import MURMUR128_MITZ_32, MURMUR128_MITZ_64
 from tests import read_data
 
 
@@ -53,6 +53,27 @@ class BloomFilterTest(unittest.TestCase):
             "not_exist" in bloom_filter,
             "Word 'not_exist' is expected to be in bloomfilter",
         )
+
+    def test_signed_integer_keys(self) -> None:
+        keys = [-1, -(2**31), -(2**31) - 1, -(2**63)]
+        for strategy in (MURMUR128_MITZ_32, MURMUR128_MITZ_64):
+            with self.subTest(strategy=strategy):
+                bloom_filter = BloomFilter(100, 0.01, strategy)
+                for key in keys:
+                    bloom_filter.put(key)
+                    self.assertTrue(bloom_filter.might_contain(key))
+
+    def test_rejects_invalid_keys(self) -> None:
+        bloom_filter = BloomFilter(100, 0.01)
+        for key in (-(2**63) - 1, 2**63):
+            with self.subTest(key=key):
+                with self.assertRaisesRegex(ValueError, "signed 64-bit"):
+                    bloom_filter.put(key)
+                with self.assertRaisesRegex(ValueError, "signed 64-bit"):
+                    bloom_filter.might_contain(key)
+
+        with self.assertRaisesRegex(TypeError, "integers or strings"):
+            bloom_filter.put(1.5)  # type: ignore[arg-type]
 
     def test_dumps(self) -> None:
         bloom_filter = BloomFilter(300, 0.0001, MURMUR128_MITZ_32)
@@ -197,3 +218,10 @@ class BloomFilterTest(unittest.TestCase):
             base64_encoded,
             "New filter's dump is expected to be the same as old filter's",
         )
+
+    def test_loads_from_base64_rejects_invalid_encoding(self) -> None:
+        bloom_filter = BloomFilter(100, 0.01)
+        malformed_base64 = bloom_filter.dumps_to_base64() + b"!"
+
+        with self.assertRaisesRegex(ValueError, "Invalid Base64"):
+            BloomFilter.loads_from_base64(malformed_base64)

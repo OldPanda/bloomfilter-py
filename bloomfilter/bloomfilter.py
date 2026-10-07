@@ -1,4 +1,5 @@
 import base64
+import binascii
 import math
 import typing
 
@@ -165,7 +166,11 @@ class BloomFilter:
         :param base64_encoded_bytes: BloomFilter dumped bytes encoded in base64.
         :type base64_encoded_bytes: bytes
         """
-        return cls.loads(base64.b64decode(base64_encoded_bytes))
+        try:
+            decoded = base64.b64decode(base64_encoded_bytes, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Invalid Base64-encoded BloomFilter") from exc
+        return cls.loads(decoded)
 
     def dumps(self) -> bytes:
         """
