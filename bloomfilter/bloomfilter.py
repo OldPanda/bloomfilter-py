@@ -10,7 +10,6 @@ from bloomfilter.bloomfilter_strategy import (
     MURMUR128_MITZ_64,
 )
 
-
 STRATEGIES: typing.List[typing.Type[Strategy]] = [MURMUR128_MITZ_32, MURMUR128_MITZ_64]
 
 
