@@ -91,3 +91,34 @@ True
 >>> 99 in bf
 True
 ```
+
+## Development and Testing
+
+From the repository root, create an isolated virtual environment and install the
+project in editable mode with pytest:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e . pytest
+```
+
+Run the complete test suite:
+
+```bash
+python -m pytest -v
+```
+
+To run the same formatting, type, and security checks used during development,
+install the additional tools and execute:
+
+```bash
+python -m pip install black mypy bandit
+python -m black --check bloomfilter tests
+python -m mypy bloomfilter --strict
+python -m bandit -r bloomfilter
+```
+
+On Windows PowerShell, activate the virtual environment with
+`.venv\Scripts\Activate.ps1` instead of `source .venv/bin/activate`.
