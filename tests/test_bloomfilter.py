@@ -82,6 +82,37 @@ class BloomFilterTest(unittest.TestCase):
             "New filter's dump is expected to be the same as old filter's",
         )
 
+    def test_loads_rejects_invalid_serialized_state(self) -> None:
+        bloom_filter = BloomFilter(100, 0.01)
+        serialized = bloom_filter.dumps()
+
+        invalid_payloads = [
+            b"",
+            bytes([serialized[0], 0]) + serialized[2:],
+            bytes([serialized[0], serialized[1]]) + bytes(4),
+            serialized[:-1],
+            serialized + b"unexpected",
+        ]
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    BloomFilter.loads(payload)
+
+    def test_rejects_oversized_filters(self) -> None:
+        with self.assertRaisesRegex(ValueError, "maximum"):
+            BloomFilter(1_000_000_000, 0.01)
+
+        oversized_word_count = BloomFilter.MAX_NUM_BITS // 64 + 1
+        oversized_dump = bytes([1, 1]) + oversized_word_count.to_bytes(
+            4, byteorder="big"
+        )
+        with self.assertRaisesRegex(ValueError, "maximum"):
+            BloomFilter.loads(oversized_dump)
+
+    def test_rejects_unserializable_hash_function_count(self) -> None:
+        with self.assertRaisesRegex(ValueError, "hash functions"):
+            BloomFilter(1, 5e-324)
+
     def test_guava_compatibility(self) -> None:
         bloom_filter = BloomFilter.loads(read_data("500_0_01_0_to_99_test.out"))
         num_bits = BloomFilter.num_of_bits(500, 0.01)
