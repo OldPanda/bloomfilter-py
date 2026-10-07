@@ -1,8 +1,10 @@
 import random
 import unittest
+from unittest.mock import patch
 
+from bitarray import bitarray
 from bloomfilter import BloomFilter
-from bloomfilter.bloomfilter_strategy import MURMUR128_MITZ_32
+from bloomfilter.bloomfilter_strategy import MURMUR128_MITZ_32, MURMUR128_MITZ_64
 from tests import read_data
 
 
@@ -54,6 +56,27 @@ class BloomFilterTest(unittest.TestCase):
             "Word 'not_exist' is expected to be in bloomfilter",
         )
 
+    def test_signed_integer_keys(self) -> None:
+        keys = [-1, -(2**31), -(2**31) - 1, -(2**63)]
+        for strategy in (MURMUR128_MITZ_32, MURMUR128_MITZ_64):
+            with self.subTest(strategy=strategy):
+                bloom_filter = BloomFilter(100, 0.01, strategy)
+                for key in keys:
+                    bloom_filter.put(key)
+                    self.assertTrue(bloom_filter.might_contain(key))
+
+    def test_rejects_invalid_keys(self) -> None:
+        bloom_filter = BloomFilter(100, 0.01)
+        for key in (-(2**63) - 1, 2**63):
+            with self.subTest(key=key):
+                with self.assertRaisesRegex(ValueError, "signed 64-bit"):
+                    bloom_filter.put(key)
+                with self.assertRaisesRegex(ValueError, "signed 64-bit"):
+                    bloom_filter.might_contain(key)
+
+        with self.assertRaisesRegex(TypeError, "integers or strings"):
+            bloom_filter.put(1.5)  # type: ignore[arg-type]
+
     def test_dumps(self) -> None:
         bloom_filter = BloomFilter(300, 0.0001, MURMUR128_MITZ_32)
         for i in range(100):
@@ -81,6 +104,50 @@ class BloomFilterTest(unittest.TestCase):
             byte_array,
             "New filter's dump is expected to be the same as old filter's",
         )
+
+    def test_loads_rejects_invalid_serialized_state(self) -> None:
+        bloom_filter = BloomFilter(100, 0.01)
+        serialized = bloom_filter.dumps()
+
+        invalid_payloads = [
+            b"",
+            bytes([serialized[0], 0]) + serialized[2:],
+            bytes([serialized[0], serialized[1]]) + bytes(4),
+            serialized[:-1],
+            serialized + b"unexpected",
+        ]
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    BloomFilter.loads(payload)
+
+    def test_rejects_oversized_filters(self) -> None:
+        with self.assertRaisesRegex(ValueError, "maximum"):
+            BloomFilter(1_000_000_000, 0.01)
+
+        oversized_word_count = BloomFilter.MAX_NUM_BITS // 64 + 1
+        oversized_dump = bytes([1, 1]) + oversized_word_count.to_bytes(
+            4, byteorder="big"
+        )
+        with self.assertRaisesRegex(ValueError, "maximum"):
+            BloomFilter.loads(oversized_dump)
+
+    def test_rejects_unserializable_hash_function_count(self) -> None:
+        with self.assertRaisesRegex(ValueError, "hash functions"):
+            BloomFilter(1, 5e-324)
+
+    def test_setup_rejects_invalid_state(self) -> None:
+        bloom_filter = BloomFilter(100, 0.01)
+
+        with self.assertRaisesRegex(ValueError, "hash functions"):
+            bloom_filter.setup(0, bitarray(64), MURMUR128_MITZ_64)
+        with self.assertRaisesRegex(ValueError, "must not be empty"):
+            bloom_filter.setup(1, bitarray(), MURMUR128_MITZ_64)
+        with self.assertRaisesRegex(ValueError, "multiple of 64"):
+            bloom_filter.setup(1, bitarray(65), MURMUR128_MITZ_64)
+        with patch.object(BloomFilter, "MAX_NUM_BITS", 64):
+            with self.assertRaisesRegex(ValueError, "maximum"):
+                bloom_filter.setup(1, bitarray(128), MURMUR128_MITZ_64)
 
     def test_guava_compatibility(self) -> None:
         bloom_filter = BloomFilter.loads(read_data("500_0_01_0_to_99_test.out"))
@@ -166,3 +233,10 @@ class BloomFilterTest(unittest.TestCase):
             base64_encoded,
             "New filter's dump is expected to be the same as old filter's",
         )
+
+    def test_loads_from_base64_rejects_invalid_encoding(self) -> None:
+        bloom_filter = BloomFilter(100, 0.01)
+        malformed_base64 = bloom_filter.dumps_to_base64() + b"!"
+
+        with self.assertRaisesRegex(ValueError, "Invalid Base64"):
+            BloomFilter.loads_from_base64(malformed_base64)
