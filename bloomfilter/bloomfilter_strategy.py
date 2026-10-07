@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from bitarray import bitarray
+from bloomfilter.funnel import Funnel, LEGACY_FUNNEL
 
 import mmh3
 import typing
@@ -12,30 +13,30 @@ class Strategy(ABC):
     INT_MIN = -0x80000000
 
     @classmethod
-    def hash_key(cls, key: typing.Union[int, str]) -> typing.Tuple[int, int]:
-        if isinstance(key, int):
-            if cls.INT_MIN <= key <= cls.INT_MAX:
-                encoded_key = key.to_bytes(4, byteorder="little", signed=True)
-            elif cls.LONG_MIN <= key <= cls.LONG_MAX:
-                encoded_key = key.to_bytes(8, byteorder="little", signed=True)
-            else:
-                raise ValueError("Integer key must fit in a signed 64-bit value")
-            return mmh3.hash64(encoded_key)
-        if isinstance(key, str):
-            return mmh3.hash64(key)
-        raise TypeError("BloomFilter keys must be integers or strings")
+    def hash_key(
+        cls, key: typing.Any, funnel: Funnel = LEGACY_FUNNEL
+    ) -> typing.Tuple[int, int]:
+        return mmh3.hash64(funnel.encode(key))
 
     @classmethod
     @abstractmethod
     def put(
-        cls, key: typing.Union[int, str], num_hash_functions: int, array: bitarray
+        cls,
+        key: typing.Any,
+        num_hash_functions: int,
+        array: bitarray,
+        funnel: Funnel = LEGACY_FUNNEL,
     ) -> bool:
         pass
 
     @classmethod
     @abstractmethod
     def might_contain(
-        cls, key: typing.Union[int, str], num_hash_functions: int, array: bitarray
+        cls,
+        key: typing.Any,
+        num_hash_functions: int,
+        array: bitarray,
+        funnel: Funnel = LEGACY_FUNNEL,
     ) -> bool:
         pass
 
@@ -48,19 +49,23 @@ class Strategy(ABC):
 class MURMUR128_MITZ_32(Strategy):
     @classmethod
     def put(
-        cls, key: typing.Union[int, str], num_hash_functions: int, array: bitarray
+        cls,
+        key: typing.Any,
+        num_hash_functions: int,
+        array: bitarray,
+        funnel: Funnel = LEGACY_FUNNEL,
     ) -> bool:
         bit_size = len(array)
-        hash_value, _ = cls.hash_key(key)
-        hash1 = hash_value & cls.INT_MAX
+        hash_value, _ = cls.hash_key(key, funnel)
+        hash1 = hash_value & 0xFFFFFFFF
         hash2 = (hash_value >> 32) & 0xFFFFFFFF
 
         bits_changed = False
         for i in range(1, num_hash_functions + 1):
             combined_hash = hash1 + (i * hash2)
             combined_hash &= 0xFFFFFFFF
-            if combined_hash > cls.INT_MAX or combined_hash < 0:
-                combined_hash = (~combined_hash) & cls.INT_MAX
+            if combined_hash & 0x80000000:
+                combined_hash = (~combined_hash) & 0xFFFFFFFF
             index = combined_hash % bit_size
             if array[index] == 0:
                 bits_changed = True
@@ -69,18 +74,22 @@ class MURMUR128_MITZ_32(Strategy):
 
     @classmethod
     def might_contain(
-        cls, key: typing.Union[int, str], num_hash_functions: int, array: bitarray
+        cls,
+        key: typing.Any,
+        num_hash_functions: int,
+        array: bitarray,
+        funnel: Funnel = LEGACY_FUNNEL,
     ) -> bool:
         bit_size = len(array)
-        hash_value, _ = cls.hash_key(key)
-        hash1 = hash_value & cls.INT_MAX
+        hash_value, _ = cls.hash_key(key, funnel)
+        hash1 = hash_value & 0xFFFFFFFF
         hash2 = (hash_value >> 32) & 0xFFFFFFFF
 
         for i in range(1, num_hash_functions + 1):
             combined_hash = hash1 + (i * hash2)
             combined_hash &= 0xFFFFFFFF
-            if combined_hash > cls.INT_MAX or combined_hash < 0:
-                combined_hash = (~combined_hash) & cls.INT_MAX
+            if combined_hash & 0x80000000:
+                combined_hash = (~combined_hash) & 0xFFFFFFFF
             index = combined_hash % bit_size
             if array[index] == 0:
                 return False
@@ -94,10 +103,14 @@ class MURMUR128_MITZ_32(Strategy):
 class MURMUR128_MITZ_64(Strategy):
     @classmethod
     def put(
-        cls, key: typing.Union[int, str], num_hash_functions: int, array: bitarray
+        cls,
+        key: typing.Any,
+        num_hash_functions: int,
+        array: bitarray,
+        funnel: Funnel = LEGACY_FUNNEL,
     ) -> bool:
         bit_size = len(array)
-        hash1, hash2 = cls.hash_key(key)
+        hash1, hash2 = cls.hash_key(key, funnel)
 
         bits_changed = False
         combined_hash = hash1
@@ -111,10 +124,14 @@ class MURMUR128_MITZ_64(Strategy):
 
     @classmethod
     def might_contain(
-        cls, key: typing.Union[int, str], num_hash_functions: int, array: bitarray
+        cls,
+        key: typing.Any,
+        num_hash_functions: int,
+        array: bitarray,
+        funnel: Funnel = LEGACY_FUNNEL,
     ) -> bool:
         bit_size = len(array)
-        hash1, hash2 = cls.hash_key(key)
+        hash1, hash2 = cls.hash_key(key, funnel)
 
         combined_hash = hash1
         for _ in range(num_hash_functions):

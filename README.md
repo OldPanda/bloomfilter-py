@@ -37,6 +37,41 @@ False
 >>>
 ```
 
+### Guava Funnel Compatibility
+
+Guava's compact BloomFilter format stores the hash strategy and bit array, but
+does not store its `Funnel`. To query a filter produced by Guava, select the
+same funnel that was used in Java:
+
+```Python
+from bloomfilter import BloomFilter, INTEGER_FUNNEL
+
+with open("guava-filter.out", "rb") as f:
+    bloom_filter = BloomFilter.loads(f.read(), funnel=INTEGER_FUNNEL)
+```
+
+The built-in mappings are:
+
+| Java funnel | bloomfilter-py funnel |
+| --- | --- |
+| `Funnels.integerFunnel()` | `INTEGER_FUNNEL` |
+| `Funnels.longFunnel()` | `LONG_FUNNEL` |
+| `Funnels.stringFunnel(StandardCharsets.UTF_8)` | `UTF8_STRING_FUNNEL` |
+| `Funnels.byteArrayFunnel()` | `BYTE_ARRAY_FUNNEL` |
+
+Use the same funnel when creating a filter that Java will read:
+
+```Python
+from bloomfilter import BloomFilter, LONG_FUNNEL
+
+bloom_filter = BloomFilter(500, 0.01, funnel=LONG_FUNNEL)
+bloom_filter.put(1)  # Encoded as a Java long even though 1 fits in an int.
+```
+
+Calls that omit `funnel` retain the historical bloomfilter-py behavior, which
+chooses integer width from each value and therefore is not suitable for all
+Guava interoperability scenarios.
+
 ### Serialize Bloomfilter
 You can easily serialize `BloomFilter` instance to a byte array
 ```Python
