@@ -69,7 +69,7 @@ class LegacyFunnel(Funnel):
 
     def encode(self, value: typing.Any) -> bytes:
         if isinstance(value, bool):
-            raise TypeError("BloomFilter keys must be integers or strings")
+            return INTEGER_FUNNEL.encode(int(value))
         if isinstance(value, int):
             if -(2**31) <= value <= 2**31 - 1:
                 return INTEGER_FUNNEL.encode(value)

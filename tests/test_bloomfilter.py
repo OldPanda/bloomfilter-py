@@ -93,10 +93,23 @@ class BloomFilterTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "signed 64-bit"):
                     bloom_filter.might_contain(key)
 
-        for key in (True, 1.5):
-            with self.subTest(key=key):
-                with self.assertRaisesRegex(TypeError, "integers or strings"):
-                    bloom_filter.put(key)
+        with self.assertRaisesRegex(TypeError, "integers or strings"):
+            bloom_filter.put(1.5)  # type: ignore[arg-type]
+
+    def test_legacy_funnel_preserves_boolean_keys(self) -> None:
+        for strategy in (MURMUR128_MITZ_32, MURMUR128_MITZ_64):
+            with self.subTest(strategy=strategy):
+                boolean_filter = BloomFilter(100, 0.01, strategy)
+                integer_filter = BloomFilter(100, 0.01, strategy)
+
+                boolean_filter.put(False)
+                boolean_filter.put(True)
+                integer_filter.put(0)
+                integer_filter.put(1)
+
+                self.assertEqual(boolean_filter.data, integer_filter.data)
+                self.assertTrue(boolean_filter.might_contain(False))
+                self.assertTrue(boolean_filter.might_contain(True))
 
     def test_dumps(self) -> None:
         bloom_filter = BloomFilter(300, 0.0001, MURMUR128_MITZ_32)
