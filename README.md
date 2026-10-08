@@ -57,7 +57,15 @@ The built-in mappings are:
 | `Funnels.integerFunnel()` | `INTEGER_FUNNEL` |
 | `Funnels.longFunnel()` | `LONG_FUNNEL` |
 | `Funnels.stringFunnel(StandardCharsets.UTF_8)` | `UTF8_STRING_FUNNEL` |
+| `Funnels.stringFunnel(StandardCharsets.UTF_16)` | `StringFunnel("UTF-16")` |
+| `Funnels.stringFunnel(StandardCharsets.UTF_16BE)` | `StringFunnel("UTF-16BE")` |
+| `Funnels.stringFunnel(StandardCharsets.UTF_16LE)` | `StringFunnel("UTF-16LE")` |
 | `Funnels.byteArrayFunnel()` | `BYTE_ARRAY_FUNNEL` |
+
+`StringFunnel` supports Java's six standard charsets: US-ASCII, ISO-8859-1,
+UTF-8, UTF-16, UTF-16BE, and UTF-16LE. Custom Guava funnels are not encoded in
+the serialized filter; use a matching custom Python `Funnel` implementation
+when reading them.
 
 Use the same funnel when creating a filter that Java will read:
 
@@ -125,6 +133,13 @@ False
 True
 >>> 99 in bf
 True
+```
+
+Deserialization limits the backing bit array to 2³⁰ bits by default. For a
+trusted larger Guava filter, pass an explicit limit to any loading method:
+
+```Python
+bf = BloomFilter.loads(dumps, funnel=INTEGER_FUNNEL, max_num_bits=2**31)
 ```
 
 ## Development and Testing

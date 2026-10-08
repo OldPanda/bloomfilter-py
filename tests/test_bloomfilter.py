@@ -1,3 +1,4 @@
+import base64
 import random
 import unittest
 from unittest.mock import patch
@@ -45,6 +46,13 @@ class BloomFilterTest(unittest.TestCase):
                 case[2],
                 f"Expected {case[2]} hash functions, but got {num_hash_functions}",
             )
+
+    def test_num_of_hash_functions_uses_java_rounding(self) -> None:
+        with patch("bloomfilter.bloomfilter.math.log", return_value=0.5):
+            self.assertEqual(BloomFilter.num_of_hash_functions(1, 5), 3)
+
+        with patch("bloomfilter.bloomfilter.math.log", side_effect=(-2.5, 1.0)):
+            self.assertEqual(BloomFilter.num_of_hash_functions_for_error_rate(0.01), 3)
 
     def test_basic_functionality(self) -> None:
         bloom_filter = BloomFilter(10000000, 0.001)
@@ -167,6 +175,30 @@ class BloomFilterTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "maximum"):
             BloomFilter.loads(oversized_dump)
 
+    def test_loads_accepts_configurable_size_limit(self) -> None:
+        serialized = bytes([1, 1]) + (2).to_bytes(4, byteorder="big") + bytes(16)
+
+        with patch.object(BloomFilter, "MAX_NUM_BITS", 64):
+            with self.assertRaisesRegex(ValueError, "maximum"):
+                BloomFilter.loads(serialized)
+
+            loaded = BloomFilter.loads(serialized, max_num_bits=128)
+            self.assertEqual(len(loaded.data), 128)
+            self.assertEqual(loaded.dumps(), serialized)
+            self.assertEqual(
+                BloomFilter.loads_from_hex(serialized.hex(), max_num_bits=128).dumps(),
+                serialized,
+            )
+            self.assertEqual(
+                BloomFilter.loads_from_base64(
+                    base64.b64encode(serialized), max_num_bits=128
+                ).dumps(),
+                serialized,
+            )
+
+        with self.assertRaisesRegex(ValueError, "must be >= 0"):
+            BloomFilter.loads(serialized, max_num_bits=-1)
+
     def test_rejects_unserializable_hash_function_count(self) -> None:
         with self.assertRaisesRegex(ValueError, "hash functions"):
             BloomFilter(1, 5e-324)
@@ -180,7 +212,7 @@ class BloomFilterTest(unittest.TestCase):
             bloom_filter.setup(1, bitarray(), MURMUR128_MITZ_64)
         with self.assertRaisesRegex(ValueError, "multiple of 64"):
             bloom_filter.setup(1, bitarray(65), MURMUR128_MITZ_64)
-        with patch.object(BloomFilter, "MAX_NUM_BITS", 64):
+        with patch.object(bloom_filter, "max_num_bits", 64):
             with self.assertRaisesRegex(ValueError, "maximum"):
                 bloom_filter.setup(1, bitarray(128), MURMUR128_MITZ_64)
 
@@ -188,8 +220,7 @@ class BloomFilterTest(unittest.TestCase):
         bloom_filter = BloomFilter.loads(
             read_data("500_0_01_0_to_99_test.out"), funnel=INTEGER_FUNNEL
         )
-        num_bits = BloomFilter.num_of_bits(500, 0.01)
-        num_hash_functions = BloomFilter.num_of_hash_functions(500, num_bits)
+        num_hash_functions = BloomFilter.num_of_hash_functions_for_error_rate(0.01)
         self.assertEqual(
             bloom_filter.num_hash_functions,
             num_hash_functions,
@@ -204,8 +235,7 @@ class BloomFilterTest(unittest.TestCase):
         bloom_filter = BloomFilter.loads(
             read_data("100_0_001_0_to_49_test.out"), funnel=INTEGER_FUNNEL
         )
-        num_bits = BloomFilter.num_of_bits(100, 0.001)
-        num_hash_functions = BloomFilter.num_of_hash_functions(100, num_bits)
+        num_hash_functions = BloomFilter.num_of_hash_functions_for_error_rate(0.001)
         self.assertEqual(
             bloom_filter.num_hash_functions,
             num_hash_functions,
@@ -224,7 +254,7 @@ class BloomFilterTest(unittest.TestCase):
         self.assertFalse(bloom_filter.might_contain(0))
         bloom_filter.put(0)
 
-        self.assertEqual(bloom_filter.dumps().hex(), "0006000000010045004000280000")
+        self.assertEqual(bloom_filter.dumps().hex(), "0007000000010145004000280000")
 
     def test_guava_funnel_vectors(self) -> None:
         vectors = [
@@ -232,49 +262,49 @@ class BloomFilterTest(unittest.TestCase):
                 MURMUR128_MITZ_32,
                 INTEGER_FUNNEL,
                 0,
-                "0006000000010045004000280000",
+                "0007000000010145004000280000",
             ),
             (
                 MURMUR128_MITZ_32,
                 LONG_FUNNEL,
                 0,
-                "0006000000012201048200000000",
+                "0007000000012209048200000000",
             ),
             (
                 MURMUR128_MITZ_32,
                 UTF8_STRING_FUNNEL,
                 "雪",
-                "0006000000010104000410004040",
+                "0007000000010104001410004040",
             ),
             (
                 MURMUR128_MITZ_32,
                 BYTE_ARRAY_FUNNEL,
                 b"abc\x00",
-                "0006000000010001000100800181",
+                "0007000000010001800100800181",
             ),
             (
                 MURMUR128_MITZ_64,
                 INTEGER_FUNNEL,
                 0,
-                "0106000000011002200040008001",
+                "0107000000011002200440008001",
             ),
             (
                 MURMUR128_MITZ_64,
                 LONG_FUNNEL,
                 0,
-                "0106000000010000802020080802",
+                "0107000000010080802020080802",
             ),
             (
                 MURMUR128_MITZ_64,
                 UTF8_STRING_FUNNEL,
                 "雪",
-                "0106000000018080808000808000",
+                "0107000000018080808000808080",
             ),
             (
                 MURMUR128_MITZ_64,
                 BYTE_ARRAY_FUNNEL,
                 b"abc\x00",
-                "0106000000010100408020080004",
+                "0107000000010100408020080204",
             ),
         ]
 
