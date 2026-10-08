@@ -12,6 +12,7 @@ from bloomfilter import (
     UTF8_STRING_FUNNEL,
     BloomFilter,
     Funnel,
+    StringFunnel,
 )
 
 
@@ -20,6 +21,7 @@ class GuavaInteropTest(unittest.TestCase):
         ("integer", INTEGER_FUNNEL, (-(2**31), -1, 0, 1, 2**31 - 1)),
         ("long", LONG_FUNNEL, (-(2**63), -(2**31) - 1, 0, 2**31, 2**63 - 1)),
         ("string", UTF8_STRING_FUNNEL, ("", "hello", "雪", "emoji 😀")),
+        ("string-utf16", StringFunnel("utf-16"), ("", "hello", "雪", "emoji 😀")),
         ("bytes", BYTE_ARRAY_FUNNEL, (b"", b"\x00\x01\xff", "雪".encode())),
     )
 
@@ -119,7 +121,7 @@ class GuavaInteropTest(unittest.TestCase):
             return inserted_values + tuple(
                 value * 4_294_967_311 for value in range(-1000, 1001)
             )
-        if funnel_name == "string":
+        if funnel_name in ("string", "string-utf16"):
             return inserted_values + tuple(f"probe-{value}" for value in range(501))
         if funnel_name == "bytes":
             return inserted_values + tuple(

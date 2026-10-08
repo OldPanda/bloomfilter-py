@@ -339,6 +339,26 @@ class BloomFilterTest(unittest.TestCase):
         self.assertNotEqual(utf8, LEGACY_FUNNEL)
         self.assertEqual(hash(utf8), hash(utf8_alias))
 
+    def test_string_funnel_matches_java_standard_charsets(self) -> None:
+        cases = [
+            ("US-ASCII", "a", "61"),
+            ("ISO-8859-1", "é", "e9"),
+            ("UTF-8", "雪", "e99baa"),
+            ("UTF-16", "", ""),
+            ("UTF-16", "a", "feff0061"),
+            ("UTF-16BE", "a", "0061"),
+            ("UTF-16LE", "a", "6100"),
+        ]
+
+        for encoding, value, expected_hex in cases:
+            with self.subTest(encoding=encoding):
+                self.assertEqual(
+                    StringFunnel(encoding).encode(value).hex(), expected_hex
+                )
+
+        with self.assertRaisesRegex(ValueError, "Java standard charsets"):
+            StringFunnel("cp1252")
+
     def test_dumps_to_hex(self) -> None:
         bloom_filter = BloomFilter(500, 0.0001, MURMUR128_MITZ_32)
         for _ in range(100):

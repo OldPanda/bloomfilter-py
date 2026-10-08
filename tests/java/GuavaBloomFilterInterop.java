@@ -71,6 +71,15 @@ public final class GuavaBloomFilterInterop {
         }
         writeTo(stringFilter, path);
         return;
+      case "string-utf16":
+        BloomFilter<CharSequence> utf16Filter =
+            BloomFilter.create(
+                Funnels.stringFunnel(StandardCharsets.UTF_16), EXPECTED_INSERTIONS, FPP);
+        for (String value : STRINGS) {
+          utf16Filter.put(value);
+        }
+        writeTo(utf16Filter, path);
+        return;
       case "bytes":
         BloomFilter<byte[]> byteFilter =
             BloomFilter.create(Funnels.byteArrayFunnel(), EXPECTED_INSERTIONS, FPP);
@@ -105,6 +114,13 @@ public final class GuavaBloomFilterInterop {
               BloomFilter.readFrom(input, Funnels.stringFunnel(StandardCharsets.UTF_8));
           for (String value : STRINGS) {
             require(stringFilter.mightContain(value), funnel, value);
+          }
+          return;
+        case "string-utf16":
+          BloomFilter<CharSequence> utf16Filter =
+              BloomFilter.readFrom(input, Funnels.stringFunnel(StandardCharsets.UTF_16));
+          for (String value : STRINGS) {
+            require(utf16Filter.mightContain(value), funnel, value);
           }
           return;
         case "bytes":
@@ -155,6 +171,17 @@ public final class GuavaBloomFilterInterop {
             appendResult(stringResults, stringFilter.mightContain("probe-" + value));
           }
           return stringResults.toString();
+        case "string-utf16":
+          BloomFilter<CharSequence> utf16Filter =
+              BloomFilter.readFrom(input, Funnels.stringFunnel(StandardCharsets.UTF_16));
+          StringBuilder utf16Results = new StringBuilder();
+          for (String value : STRINGS) {
+            appendResult(utf16Results, utf16Filter.mightContain(value));
+          }
+          for (int value = 0; value <= 500; value++) {
+            appendResult(utf16Results, utf16Filter.mightContain("probe-" + value));
+          }
+          return utf16Results.toString();
         case "bytes":
           BloomFilter<byte[]> byteFilter =
               BloomFilter.readFrom(input, Funnels.byteArrayFunnel());

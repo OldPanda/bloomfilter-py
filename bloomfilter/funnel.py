@@ -43,15 +43,35 @@ class ByteArrayFunnel(Funnel):
 
 
 class StringFunnel(Funnel):
-    """Equivalent to Guava's ``Funnels.stringFunnel(charset)``."""
+    """Equivalent to Guava's funnel for a standard Java charset."""
+
+    _JAVA_STANDARD_CHARSETS = {
+        "ascii": ("ascii", b""),
+        "iso8859-1": ("iso8859-1", b""),
+        "utf-8": ("utf-8", b""),
+        "utf-16": ("utf-16-be", b"\xfe\xff"),
+        "utf-16-be": ("utf-16-be", b""),
+        "utf-16-le": ("utf-16-le", b""),
+    }
 
     def __init__(self, encoding: str = "utf-8") -> None:
         self.encoding = codecs.lookup(encoding).name
+        try:
+            self._python_encoding, self._prefix = self._JAVA_STANDARD_CHARSETS[
+                self.encoding
+            ]
+        except KeyError as exc:
+            raise ValueError(
+                "StringFunnel supports only Java standard charsets: "
+                "US-ASCII, ISO-8859-1, UTF-8, UTF-16, UTF-16BE, and UTF-16LE"
+            ) from exc
 
     def encode(self, value: typing.Any) -> bytes:
         if not isinstance(value, str):
             raise TypeError("StringFunnel values must be strings")
-        return value.encode(self.encoding)
+        if not value:
+            return b""
+        return self._prefix + value.encode(self._python_encoding, errors="replace")
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, StringFunnel) and self.encoding == other.encoding
