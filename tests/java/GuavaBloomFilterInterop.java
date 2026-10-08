@@ -1,5 +1,6 @@
 import com.google.common.hash.BloomFilter;
 import com.google.common.hash.Funnels;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -33,8 +34,13 @@ public final class GuavaBloomFilterInterop {
   private GuavaBloomFilterInterop() {}
 
   public static void main(String[] args) throws Exception {
+    if (args.length == 3 && args[0].equals("describe")) {
+      describe(Long.parseLong(args[1]), Double.parseDouble(args[2]));
+      return;
+    }
     if (args.length != 3) {
-      throw new IllegalArgumentException("usage: <write|read|probe> <funnel> <path>");
+      throw new IllegalArgumentException(
+          "usage: <write|read|probe> <funnel> <path> | describe <insertions> <fpp>");
     }
 
     String operation = args[0];
@@ -49,6 +55,23 @@ public final class GuavaBloomFilterInterop {
     } else {
       throw new IllegalArgumentException("unknown operation: " + operation);
     }
+  }
+
+  private static void describe(long expectedInsertions, double fpp) throws IOException {
+    BloomFilter<Integer> filter =
+        BloomFilter.create(Funnels.integerFunnel(), expectedInsertions, fpp);
+    ByteArrayOutputStream output = new ByteArrayOutputStream();
+    filter.writeTo(output);
+    byte[] serialized = output.toByteArray();
+    int dataWords =
+        ((serialized[2] & 0xff) << 24)
+            | ((serialized[3] & 0xff) << 16)
+            | ((serialized[4] & 0xff) << 8)
+            | (serialized[5] & 0xff);
+    byte[] header = new byte[6];
+    System.arraycopy(serialized, 0, header, 0, header.length);
+    System.out.printf(
+        "%d,%d,%d,%s%n", serialized[1] & 0xff, dataWords, serialized.length, toHex(header));
   }
 
   private static void write(String funnel, Path path) throws IOException {

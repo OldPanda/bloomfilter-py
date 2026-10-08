@@ -52,8 +52,9 @@ class BloomFilter:
         if expected_insertions == 0:
             expected_insertions = 1
 
+        self.max_num_bits = self.MAX_NUM_BITS
         num_bits = self.num_of_bits(expected_insertions, err_rate)
-        num_hash_functions = self.num_of_hash_functions(expected_insertions, num_bits)
+        num_hash_functions = self.num_of_hash_functions_for_error_rate(err_rate)
         allocated_bits = max(
             self._BITS_PER_DATA_WORD,
             math.ceil(num_bits / self._BITS_PER_DATA_WORD) * self._BITS_PER_DATA_WORD,
@@ -91,10 +92,11 @@ class BloomFilter:
                 f"BloomFilter data length must be a multiple of "
                 f"{self._BITS_PER_DATA_WORD} bits"
             )
-        if len(data) > self.MAX_NUM_BITS:
+        max_num_bits = getattr(self, "max_num_bits", self.MAX_NUM_BITS)
+        if len(data) > max_num_bits:
             raise ValueError(
                 f"BloomFilter data contains {len(data)} bits; "
-                f"maximum is {self.MAX_NUM_BITS}"
+                f"maximum is {max_num_bits}"
             )
         self.num_hash_functions = num_hash_functions
         self.data = data
@@ -102,7 +104,12 @@ class BloomFilter:
         self.funnel = funnel
 
     @classmethod
-    def loads(cls, array: bytes, funnel: Funnel = LEGACY_FUNNEL) -> "BloomFilter":
+    def loads(
+        cls,
+        array: bytes,
+        funnel: Funnel = LEGACY_FUNNEL,
+        max_num_bits: typing.Optional[int] = None,
+    ) -> "BloomFilter":
         """
         Initialize Bloomfilter instance given dump bytes.
 
@@ -110,7 +117,14 @@ class BloomFilter:
         :type array: bytes
         :param funnel: Encoder matching the Funnel used to populate the filter.
         :type funnel: :class:`~bloomfilter.Funnel`
+        :param max_num_bits: Maximum serialized bit-array size to allocate. Uses
+            :attr:`MAX_NUM_BITS` by default.
+        :type max_num_bits: int or None
         """
+        if max_num_bits is None:
+            max_num_bits = cls.MAX_NUM_BITS
+        if max_num_bits < 0:
+            raise ValueError("Maximum number of bits must be >= 0")
         if len(array) < cls._SERIALIZED_HEADER_SIZE:
             raise ValueError("Serialized BloomFilter is shorter than its header")
 
@@ -130,10 +144,10 @@ class BloomFilter:
         if data_word_count == 0:
             raise ValueError("Serialized BloomFilter data must not be empty")
         bit_length = data_word_count * cls._BITS_PER_DATA_WORD
-        if bit_length > cls.MAX_NUM_BITS:
+        if bit_length > max_num_bits:
             raise ValueError(
                 f"Serialized BloomFilter contains {bit_length} bits; "
-                f"maximum is {cls.MAX_NUM_BITS}"
+                f"maximum is {max_num_bits}"
             )
 
         expected_length = (
@@ -155,12 +169,16 @@ class BloomFilter:
             entry.frombytes(array[i : i + cls._BYTES_PER_DATA_WORD])
             data += entry[::-1]
         instance = cls(0, 0.01, strategy=strategy, funnel=funnel)
+        instance.max_num_bits = max_num_bits
         instance.setup(num_hash_functions, data, strategy, funnel)
         return instance
 
     @classmethod
     def loads_from_hex(
-        cls, hex_str: str, funnel: Funnel = LEGACY_FUNNEL
+        cls,
+        hex_str: str,
+        funnel: Funnel = LEGACY_FUNNEL,
+        max_num_bits: typing.Optional[int] = None,
     ) -> "BloomFilter":
         """
         Initialize Bloomfilter instance from hex string.
@@ -168,11 +186,16 @@ class BloomFilter:
         :param hex_str: BloomFilter dumped hex string.
         :type hex_str: str
         """
-        return cls.loads(bytes.fromhex(hex_str), funnel=funnel)
+        return cls.loads(
+            bytes.fromhex(hex_str), funnel=funnel, max_num_bits=max_num_bits
+        )
 
     @classmethod
     def loads_from_base64(
-        cls, base64_encoded_bytes: bytes, funnel: Funnel = LEGACY_FUNNEL
+        cls,
+        base64_encoded_bytes: bytes,
+        funnel: Funnel = LEGACY_FUNNEL,
+        max_num_bits: typing.Optional[int] = None,
     ) -> "BloomFilter":
         """
         Initialize Bloomfilter instance from base64 encoded bytes.
@@ -184,7 +207,7 @@ class BloomFilter:
             decoded = base64.b64decode(base64_encoded_bytes, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("Invalid Base64-encoded BloomFilter") from exc
-        return cls.loads(decoded, funnel=funnel)
+        return cls.loads(decoded, funnel=funnel, max_num_bits=max_num_bits)
 
     def dumps(self) -> bytes:
         """
@@ -243,7 +266,14 @@ class BloomFilter:
         :param num_bits: Number of bits in the Bloomfilter's bits array.
         :type num_bits: int
         """
-        return max(1, round(num_bits / expected_insertions * math.log(2)))
+        java_rounded = math.floor(num_bits / expected_insertions * math.log(2) + 0.5)
+        return max(1, java_rounded)
+
+    @classmethod
+    def num_of_hash_functions_for_error_rate(cls, err_rate: float) -> int:
+        """Compute Guava's hash-function count directly from the requested FPP."""
+        java_rounded = math.floor(-math.log(err_rate) / math.log(2) + 0.5)
+        return max(1, java_rounded)
 
     def put(self, key: typing.Any) -> bool:
         """

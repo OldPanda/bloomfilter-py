@@ -75,6 +75,44 @@ class GuavaInteropTest(unittest.TestCase):
         )
         return completed.stdout.strip()
 
+    def run_sizing_helper(self, expected_insertions: int, fpp: float) -> str:
+        completed = subprocess.run(
+            [
+                self._java,
+                "-cp",
+                self._classpath,
+                "GuavaBloomFilterInterop",
+                "describe",
+                str(expected_insertions),
+                str(fpp),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return completed.stdout.strip()
+
+    def test_filter_sizing_matches_guava(self) -> None:
+        cases = [(0, 0.03), (1, 0.01), (10, 0.03), (500, 0.01), (100_000, 0.001)]
+
+        for expected_insertions, fpp in cases:
+            with self.subTest(expected_insertions=expected_insertions, fpp=fpp):
+                java_description = self.run_sizing_helper(expected_insertions, fpp)
+                bloom_filter = BloomFilter(
+                    expected_insertions, fpp, funnel=INTEGER_FUNNEL
+                )
+                serialized = bloom_filter.dumps()
+                python_description = ",".join(
+                    (
+                        str(bloom_filter.num_hash_functions),
+                        str(len(bloom_filter.data) // 64),
+                        str(len(serialized)),
+                        serialized[:6].hex(),
+                    )
+                )
+
+                self.assertEqual(python_description, java_description)
+
     def test_guava_writes_python_reads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             for funnel_name, funnel, values in self.CASES:
@@ -84,6 +122,9 @@ class GuavaInteropTest(unittest.TestCase):
                     serialized = path.read_bytes()
 
                     bloom_filter = BloomFilter.loads(serialized, funnel=funnel)
+                    python_filter = BloomFilter(100, 0.01, funnel=funnel)
+                    self.assertEqual(python_filter.dumps()[:6], serialized[:6])
+                    self.assertEqual(len(python_filter.dumps()), len(serialized))
                     for value in values:
                         self.assertTrue(bloom_filter.might_contain(value))
                     self.assertEqual(bloom_filter.dumps(), serialized)
