@@ -7,6 +7,11 @@
 ## Overview
 Yet another Bloomfilter implementation in Python, compatible with Java's Guava library.
 
+Compatibility targets Guava's compact `BloomFilter.writeTo` / `readFrom` format.
+Java `ObjectOutputStream` / `ObjectInputStream` serialization is a different
+format and is not supported. The compact format does not include the funnel;
+callers must provide the matching encoder when loading a filter.
+
 I was looking for a Python library which is capable of reading what Bloomfilter of Java's Guava library serializes and is also able to output byte array which is recognizable by Java. But unfortunately failed. Hence I developed this library by borrowing how Guava implements Bloomfilter serialization/deserialization a lot to deal with Bloomfilters on both Python and Java sides.
 
 As for Bloomfilter usage in Java world, please refer to [this post](https://www.baeldung.com/guava-bloom-filter).
@@ -141,6 +146,59 @@ trusted larger Guava filter, pass an explicit limit to any loading method:
 ```Python
 bf = BloomFilter.loads(dumps, funnel=INTEGER_FUNNEL, max_num_bits=2**31)
 ```
+
+### Stream I/O
+
+Read and write compact Guava data directly with binary streams:
+
+```Python
+with open("guava-filter.out", "rb") as stream:
+    bf = BloomFilter.read_from(stream, funnel=INTEGER_FUNNEL)
+
+with open("python-filter.out", "wb") as stream:
+    bf.write_to(stream)
+
+byte_count = bf.serialized_size()
+```
+
+`read_from` reads exactly one filter, leaving any following stream data unread.
+It accepts the same `max_num_bits` limit as `loads`, and validates the header
+before reading the payload. `loads` requires exactly one filter with no trailing
+bytes. Neither stream method closes the caller's stream. Both handle partial
+reads or writes on blocking binary streams.
+
+### Copies, Merging, and Statistics
+
+```Python
+snapshot = bf.copy()
+other = BloomFilter(500, 0.01, funnel=INTEGER_FUNNEL)
+other.put(123)
+
+if bf.is_compatible(other):
+    bf.put_all(other)
+
+false_positive_probability = bf.expected_fpp()
+estimated_distinct_elements = bf.approximate_element_count()
+```
+
+`copy` duplicates the backing bit array and preserves the loading limit. It
+shares the funnel and stateless strategy, as Guava does; custom funnels should
+be immutable. `put_all` performs an in-place union without modifying the source.
+Compatibility requires distinct instances with the same bit-array size, number
+of hashes, strategy, and equal funnels. Custom funnels must define equality
+when separate instances represent the same encoding.
+
+Statistics use the current bit occupancy, so they also work on loaded and merged
+filters. A fully saturated filter has an expected FPP of `1.0`; its element count
+cannot be estimated and raises `OverflowError`, corresponding to Guava's
+`ArithmeticException`. Filter equality compares configuration, funnel, and bit
+contents. Mutable filters are unhashable in Python.
+
+Unlike Guava's atomic implementation, this library does not guarantee safe
+concurrent mutations. Use an external lock around mutations, queries, copies,
+statistics, and serialization when sharing a filter between threads. Java's
+deprecated predicate aliases and stream collectors are language-specific APIs;
+use `might_contain` (or `in`) and a loop calling `put` in Python.
 
 ## Development and Testing
 

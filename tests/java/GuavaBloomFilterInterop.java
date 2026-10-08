@@ -52,9 +52,54 @@ public final class GuavaBloomFilterInterop {
       readAndVerify(funnel, path);
     } else if (operation.equals("probe")) {
       System.out.println(probe(funnel, path));
+    } else if (operation.equals("statistics")) {
+      statistics(path);
+    } else if (operation.equals("operations")) {
+      operations(path);
     } else {
       throw new IllegalArgumentException("unknown operation: " + operation);
     }
+  }
+
+  private static BloomFilter<Integer> readIntegerFilter(Path path) throws IOException {
+    try (InputStream input = Files.newInputStream(path)) {
+      return BloomFilter.readFrom(input, Funnels.integerFunnel());
+    }
+  }
+
+  private static void statistics(Path path) throws IOException {
+    BloomFilter<Integer> filter = readIntegerFilter(path);
+    String count;
+    try {
+      count = Long.toString(filter.approximateElementCount());
+    } catch (ArithmeticException exception) {
+      count = "overflow";
+    }
+    System.out.println(filter.expectedFpp() + "," + count + "," + filter.serializedSize());
+  }
+
+  private static void operations(Path path) throws IOException {
+    BloomFilter<Integer> filter = readIntegerFilter(path);
+    BloomFilter<Integer> copied = filter.copy();
+    require(filter.equals(copied), "copy equality", path);
+    require(!filter.isCompatible(filter), "self compatibility", path);
+    require(filter.isCompatible(copied), "copy compatibility", path);
+    try {
+      filter.putAll(filter);
+      throw new AssertionError("self merge accepted");
+    } catch (IllegalArgumentException expected) {
+      // Guava rejects self-merges even though configurations match.
+    }
+    BloomFilter<Integer> unchanged = filter.copy();
+    boolean changed = copied.put(1000);
+    require(filter.equals(unchanged), "copy independence", path);
+    filter.putAll(copied);
+    require(filter.equals(copied), "merged equality", path);
+    require(filter.mightContain(1000), "merged membership", path);
+    ByteArrayOutputStream output = new ByteArrayOutputStream();
+    filter.writeTo(output);
+    System.out.println(changed);
+    System.out.println(toHex(output.toByteArray()));
   }
 
   private static void describe(long expectedInsertions, double fpp) throws IOException {
