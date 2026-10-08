@@ -48,8 +48,8 @@ class GuavaInteropTest(unittest.TestCase):
         if hasattr(cls, "_temporary_directory"):
             cls._temporary_directory.cleanup()
 
-    def run_helper(self, operation: str, funnel_name: str, path: Path) -> None:
-        subprocess.run(
+    def run_helper(self, operation: str, funnel_name: str, path: Path) -> str:
+        completed = subprocess.run(
             [
                 self._java,
                 "-cp",
@@ -60,7 +60,10 @@ class GuavaInteropTest(unittest.TestCase):
                 str(path),
             ],
             check=True,
+            capture_output=True,
+            text=True,
         )
+        return completed.stdout.strip()
 
     def test_guava_writes_python_reads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -74,6 +77,22 @@ class GuavaInteropTest(unittest.TestCase):
                     for value in values:
                         self.assertTrue(bloom_filter.might_contain(value))
                     self.assertEqual(bloom_filter.dumps(), serialized)
+
+    def test_loaded_filter_behavior_matches_guava(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            for funnel_name, funnel, values in self.CASES:
+                with self.subTest(funnel=funnel_name):
+                    path = Path(directory) / f"behavior-{funnel_name}.bin"
+                    self.run_helper("write", funnel_name, path)
+
+                    bloom_filter = BloomFilter.loads(path.read_bytes(), funnel=funnel)
+                    java_results = self.run_helper("probe", funnel_name, path)
+                    python_results = "".join(
+                        "1" if bloom_filter.might_contain(value) else "0"
+                        for value in self.probes(funnel_name, values)
+                    )
+
+                    self.assertEqual(python_results, java_results)
 
     def test_python_writes_guava_reads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -91,3 +110,19 @@ class GuavaInteropTest(unittest.TestCase):
         for value in values:
             bloom_filter.put(value)
         return bloom_filter
+
+    @staticmethod
+    def probes(funnel_name: str, inserted_values: tuple) -> tuple:
+        if funnel_name == "integer":
+            return inserted_values + tuple(range(-1000, 1001))
+        if funnel_name == "long":
+            return inserted_values + tuple(
+                value * 4_294_967_311 for value in range(-1000, 1001)
+            )
+        if funnel_name == "string":
+            return inserted_values + tuple(f"probe-{value}" for value in range(501))
+        if funnel_name == "bytes":
+            return inserted_values + tuple(
+                f"probe-{value}".encode() for value in range(501)
+            )
+        raise ValueError(f"unknown funnel: {funnel_name}")

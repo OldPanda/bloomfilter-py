@@ -27,7 +27,7 @@ public final class GuavaBloomFilterInterop {
 
   public static void main(String[] args) throws Exception {
     if (args.length != 3) {
-      throw new IllegalArgumentException("usage: <write|read> <funnel> <path>");
+      throw new IllegalArgumentException("usage: <write|read|probe> <funnel> <path>");
     }
 
     String operation = args[0];
@@ -37,6 +37,8 @@ public final class GuavaBloomFilterInterop {
       write(funnel, path);
     } else if (operation.equals("read")) {
       readAndVerify(funnel, path);
+    } else if (operation.equals("probe")) {
+      System.out.println(probe(funnel, path));
     } else {
       throw new IllegalArgumentException("unknown operation: " + operation);
     }
@@ -118,6 +120,59 @@ public final class GuavaBloomFilterInterop {
     }
   }
 
+  private static String probe(String funnel, Path path) throws IOException {
+    try (InputStream input = Files.newInputStream(path)) {
+      switch (funnel) {
+        case "integer":
+          BloomFilter<Integer> integerFilter =
+              BloomFilter.readFrom(input, Funnels.integerFunnel());
+          StringBuilder integerResults = new StringBuilder();
+          for (int value : INTEGERS) {
+            appendResult(integerResults, integerFilter.mightContain(value));
+          }
+          for (int value = -1000; value <= 1000; value++) {
+            appendResult(integerResults, integerFilter.mightContain(value));
+          }
+          return integerResults.toString();
+        case "long":
+          BloomFilter<Long> longFilter = BloomFilter.readFrom(input, Funnels.longFunnel());
+          StringBuilder longResults = new StringBuilder();
+          for (long value : LONGS) {
+            appendResult(longResults, longFilter.mightContain(value));
+          }
+          for (long value = -1000; value <= 1000; value++) {
+            appendResult(longResults, longFilter.mightContain(value * 4294967311L));
+          }
+          return longResults.toString();
+        case "string":
+          BloomFilter<CharSequence> stringFilter =
+              BloomFilter.readFrom(input, Funnels.stringFunnel(StandardCharsets.UTF_8));
+          StringBuilder stringResults = new StringBuilder();
+          for (String value : STRINGS) {
+            appendResult(stringResults, stringFilter.mightContain(value));
+          }
+          for (int value = 0; value <= 500; value++) {
+            appendResult(stringResults, stringFilter.mightContain("probe-" + value));
+          }
+          return stringResults.toString();
+        case "bytes":
+          BloomFilter<byte[]> byteFilter =
+              BloomFilter.readFrom(input, Funnels.byteArrayFunnel());
+          StringBuilder byteResults = new StringBuilder();
+          for (byte[] value : BYTE_ARRAYS) {
+            appendResult(byteResults, byteFilter.mightContain(value));
+          }
+          for (int value = 0; value <= 500; value++) {
+            byte[] probe = ("probe-" + value).getBytes(StandardCharsets.UTF_8);
+            appendResult(byteResults, byteFilter.mightContain(probe));
+          }
+          return byteResults.toString();
+        default:
+          throw new IllegalArgumentException("unknown funnel: " + funnel);
+      }
+    }
+  }
+
   private static void writeTo(BloomFilter<?> filter, Path path) throws IOException {
     try (OutputStream output = Files.newOutputStream(path)) {
       filter.writeTo(output);
@@ -128,6 +183,10 @@ public final class GuavaBloomFilterInterop {
     if (!condition) {
       throw new AssertionError("missing " + funnel + " value: " + value);
     }
+  }
+
+  private static void appendResult(StringBuilder results, boolean result) {
+    results.append(result ? '1' : '0');
   }
 
   private static String toHex(byte[] value) {
