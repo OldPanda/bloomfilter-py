@@ -1,4 +1,5 @@
 import os
+import math
 from pathlib import Path
 import shutil
 import subprocess
@@ -14,6 +15,7 @@ from bloomfilter import (
     Funnel,
     StringFunnel,
 )
+from bloomfilter.bloomfilter_strategy import MURMUR128_MITZ_32, MURMUR128_MITZ_64
 
 
 class GuavaInteropTest(unittest.TestCase):
@@ -112,6 +114,75 @@ class GuavaInteropTest(unittest.TestCase):
                 )
 
                 self.assertEqual(python_description, java_description)
+
+    def test_loaded_statistics_match_guava(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "statistics.bin"
+            for strategy in (MURMUR128_MITZ_32, MURMUR128_MITZ_64):
+                for hash_count in (1, 7, 255):
+                    for bit_count in (0, 1, 32, 63, 64):
+                        with self.subTest(
+                            strategy=strategy, hashes=hash_count, bits=bit_count
+                        ):
+                            bloom_filter = BloomFilter(
+                                1, 0.01, strategy, INTEGER_FUNNEL
+                            )
+                            bloom_filter.num_hash_functions = hash_count
+                            bloom_filter.data.setall(0)
+                            bloom_filter.data[:bit_count] = True
+                            path.write_bytes(bloom_filter.dumps())
+                            loaded = BloomFilter.loads(
+                                path.read_bytes(), INTEGER_FUNNEL
+                            )
+                            fpp, count, size = self.run_helper(
+                                "statistics", "integer", path
+                            ).split(",")
+                            self.assertTrue(
+                                math.isclose(
+                                    loaded.expected_fpp(), float(fpp), rel_tol=1e-14
+                                )
+                            )
+                            self.assertEqual(loaded.serialized_size(), int(size))
+                            if count == "overflow":
+                                with self.assertRaises(OverflowError):
+                                    loaded.approximate_element_count()
+                            else:
+                                self.assertEqual(
+                                    loaded.approximate_element_count(), int(count)
+                                )
+
+    def test_loaded_copy_merge_and_put_match_guava(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "operations.bin"
+            for strategy in (MURMUR128_MITZ_32, MURMUR128_MITZ_64):
+                with self.subTest(strategy=strategy):
+                    original = BloomFilter(100, 0.01, strategy, INTEGER_FUNNEL)
+                    for value in range(20):
+                        original.put(value)
+                    path.write_bytes(original.dumps())
+                    changed, merged_hex = self.run_helper(
+                        "operations", "integer", path
+                    ).splitlines()
+                    with path.open("rb") as stream:
+                        loaded = BloomFilter.read_from(stream, INTEGER_FUNNEL)
+                    copied = loaded.copy()
+                    self.assertEqual(loaded, copied)
+                    self.assertTrue(loaded.is_compatible(copied))
+                    self.assertFalse(loaded.is_compatible(loaded))
+                    self.assertEqual(copied.put(1000), changed == "true")
+                    self.assertEqual(loaded, original)
+                    copied_dump = copied.dumps()
+                    loaded.put_all(copied)
+                    self.assertEqual(loaded.dumps_to_hex(), merged_hex)
+                    self.assertEqual(copied.dumps(), copied_dump)
+                    self.assertEqual(loaded, copied)
+                    path.write_bytes(loaded.dumps())
+                    java_results = self.run_helper("probe", "integer", path)
+                    python_results = "".join(
+                        "1" if loaded.might_contain(value) else "0"
+                        for value in self.probes("integer", self.CASES[0][2])
+                    )
+                    self.assertEqual(python_results, java_results)
 
     def test_guava_writes_python_reads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

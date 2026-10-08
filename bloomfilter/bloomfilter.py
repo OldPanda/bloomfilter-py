@@ -1,5 +1,6 @@
 import base64
 import binascii
+import io
 import math
 import typing
 
@@ -121,6 +122,20 @@ class BloomFilter:
             :attr:`MAX_NUM_BITS` by default.
         :type max_num_bits: int or None
         """
+        _, _, expected_length, _ = cls._parse_header(
+            array[: cls._SERIALIZED_HEADER_SIZE], max_num_bits
+        )
+        if len(array) != expected_length:
+            raise ValueError(
+                f"Invalid serialized BloomFilter length: expected "
+                f"{expected_length} bytes, got {len(array)}"
+            )
+        return cls.read_from(io.BytesIO(array), funnel, max_num_bits)
+
+    @classmethod
+    def _parse_header(
+        cls, array: bytes, max_num_bits: typing.Optional[int]
+    ) -> typing.Tuple[typing.Type[Strategy], int, int, int]:
         if max_num_bits is None:
             max_num_bits = cls.MAX_NUM_BITS
         if max_num_bits < 0:
@@ -140,9 +155,9 @@ class BloomFilter:
                 f"{cls.MAX_NUM_HASH_FUNCTIONS}"
             )
 
-        data_word_count = int.from_bytes(array[2:6], byteorder="big")
-        if data_word_count == 0:
-            raise ValueError("Serialized BloomFilter data must not be empty")
+        data_word_count = int.from_bytes(array[2:6], byteorder="big", signed=True)
+        if data_word_count <= 0:
+            raise ValueError("Serialized BloomFilter word count must be positive")
         bit_length = data_word_count * cls._BITS_PER_DATA_WORD
         if bit_length > max_num_bits:
             raise ValueError(
@@ -153,23 +168,46 @@ class BloomFilter:
         expected_length = (
             cls._SERIALIZED_HEADER_SIZE + data_word_count * cls._BYTES_PER_DATA_WORD
         )
-        if len(array) != expected_length:
-            raise ValueError(
-                f"Invalid serialized BloomFilter length: expected "
-                f"{expected_length} bytes, got {len(array)}"
-            )
+        return strategy, num_hash_functions, expected_length, max_num_bits
+
+    @staticmethod
+    def _read_exact(stream: typing.BinaryIO, size: int) -> bytes:
+        result = bytearray()
+        while len(result) < size:
+            chunk = stream.read(size - len(result))
+            if not chunk:
+                raise ValueError("Truncated serialized BloomFilter stream")
+            result.extend(chunk)
+        return bytes(result)
+
+    @classmethod
+    def read_from(
+        cls,
+        stream: typing.BinaryIO,
+        funnel: Funnel = LEGACY_FUNNEL,
+        max_num_bits: typing.Optional[int] = None,
+    ) -> "BloomFilter":
+        """Read one Guava compact filter, leaving trailing stream data unread.
+
+        Validate the header and allocation limit before reading the payload.
+        The caller retains ownership of the stream.
+        """
+        header = cls._read_exact(stream, cls._SERIALIZED_HEADER_SIZE)
+        strategy, num_hash_functions, expected_length, limit = cls._parse_header(
+            header, max_num_bits
+        )
 
         data = bitarray()
-        for i in range(
+        for _ in range(
             cls._SERIALIZED_HEADER_SIZE,
             expected_length,
             cls._BYTES_PER_DATA_WORD,
         ):
             entry = bitarray()
-            entry.frombytes(array[i : i + cls._BYTES_PER_DATA_WORD])
+            entry.frombytes(cls._read_exact(stream, cls._BYTES_PER_DATA_WORD))
             data += entry[::-1]
-        instance = cls(0, 0.01, strategy=strategy, funnel=funnel)
-        instance.max_num_bits = max_num_bits
+        instance = cls.__new__(cls)
+        instance.max_num_bits = limit
         instance.setup(num_hash_functions, data, strategy, funnel)
         return instance
 
@@ -213,6 +251,12 @@ class BloomFilter:
         """
         Serialize BloomFilter instance to bytes.
         """
+        stream = io.BytesIO()
+        self.write_to(stream)
+        return stream.getvalue()
+
+    def write_to(self, stream: typing.BinaryIO) -> None:
+        """Write Guava's compact format without closing the caller's stream."""
         self.setup(self.num_hash_functions, self.data, self.strategy, self.funnel)
         result = bytearray()
         result.extend(self.strategy.ordinal().to_bytes(1, byteorder="little"))
@@ -220,9 +264,80 @@ class BloomFilter:
         result.extend(
             (len(self.data) // self._BITS_PER_DATA_WORD).to_bytes(4, byteorder="big")
         )
+        self._write_exact(stream, bytes(result))
         for i in range(0, len(self.data), self._BITS_PER_DATA_WORD):
-            result.extend(self.data[i : i + self._BITS_PER_DATA_WORD][::-1].tobytes())
-        return bytes(result)
+            self._write_exact(
+                stream, self.data[i : i + self._BITS_PER_DATA_WORD][::-1].tobytes()
+            )
+
+    @staticmethod
+    def _write_exact(stream: typing.BinaryIO, data: bytes) -> None:
+        offset = 0
+        while offset < len(data):
+            written = stream.write(data[offset:])
+            if written is None or written <= 0:
+                raise OSError("BloomFilter stream write made no progress")
+            offset += written
+
+    def serialized_size(self) -> int:
+        """Return the compact serialized byte size without allocating a dump."""
+        return self._SERIALIZED_HEADER_SIZE + len(self.data) // 8
+
+    def copy(self) -> "BloomFilter":
+        """Copy the bit array; the funnel and stateless strategy are shared."""
+        instance = type(self).__new__(type(self))
+        instance.max_num_bits = getattr(self, "max_num_bits", self.MAX_NUM_BITS)
+        instance.setup(
+            self.num_hash_functions, self.data.copy(), self.strategy, self.funnel
+        )
+        return instance
+
+    def expected_fpp(self) -> float:
+        """Estimate false-positive probability from the current bit occupancy."""
+        return float((self.data.count() / len(self.data)) ** self.num_hash_functions)
+
+    def approximate_element_count(self) -> int:
+        """Estimate distinct insertions, using Guava's HALF_UP rounding.
+
+        Raise OverflowError when saturated or outside Java's signed-long range,
+        corresponding to Guava's ArithmeticException.
+        """
+        fraction = self.data.count() / len(self.data)
+        if fraction == 1.0:
+            raise OverflowError("Cannot estimate element count for a saturated filter")
+        estimate = -math.log1p(-fraction) * len(self.data) / self.num_hash_functions
+        if estimate >= 2**63:
+            raise OverflowError("Element count exceeds the Java signed-long range")
+        integer = math.floor(estimate)
+        return integer + int(estimate - integer >= 0.5)
+
+    def is_compatible(self, other: "BloomFilter") -> bool:
+        """Check merge compatibility, excluding the same instance as Guava does."""
+        if not isinstance(other, BloomFilter):
+            raise TypeError("Expected a BloomFilter")
+        return (
+            self is not other
+            and self.num_hash_functions == other.num_hash_functions
+            and len(self.data) == len(other.data)
+            and self.strategy == other.strategy
+            and self.funnel == other.funnel
+        )
+
+    def put_all(self, other: "BloomFilter") -> None:
+        """Merge a compatible filter into this one, preserving the source."""
+        if not self.is_compatible(other):
+            raise ValueError("Cannot combine incompatible BloomFilters")
+        self.data |= other.data
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, BloomFilter):
+            return NotImplemented
+        return (
+            self.num_hash_functions == other.num_hash_functions
+            and self.strategy == other.strategy
+            and self.funnel == other.funnel
+            and self.data == other.data
+        )
 
     def dumps_to_hex(self) -> str:
         """
@@ -283,7 +398,7 @@ class BloomFilter:
 
     def might_contain(self, key: typing.Any) -> bool:
         """
-        Return ``True`` if given element exists in Bloomfilter. Otherwise return ``False``.
+        Return ``True`` if the element might be present, or ``False`` if absent.
         """
         return self.strategy.might_contain(
             key, self.num_hash_functions, self.data, self.funnel
