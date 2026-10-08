@@ -346,8 +346,13 @@ class BloomFilterTest(unittest.TestCase):
             ("UTF-8", "雪", "e99baa"),
             ("UTF-16", "", ""),
             ("UTF-16", "a", "feff0061"),
+            ("UTF-16", "\ud800", "fefffffd"),
             ("UTF-16BE", "a", "0061"),
+            ("UTF-16BE", "\udc00", "fffd"),
             ("UTF-16LE", "a", "6100"),
+            ("UTF-16LE", "\ud800", "fdff"),
+            ("UTF-8", "\ud800", "3f"),
+            ("UTF-8", "\ud83d\ude00", "f09f9880"),
         ]
 
         for encoding, value, expected_hex in cases:

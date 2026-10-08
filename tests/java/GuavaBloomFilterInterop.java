@@ -18,7 +18,14 @@ public final class GuavaBloomFilterInterop {
   private static final long[] LONGS = {
     Long.MIN_VALUE, -2147483649L, 0L, 2147483648L, Long.MAX_VALUE
   };
-  private static final String[] STRINGS = {"", "hello", "雪", "emoji 😀"};
+  private static final String[] STRINGS = {
+    "",
+    "hello",
+    "雪",
+    "emoji 😀",
+    new String(new char[] {(char) 0xd800}),
+    new String(new char[] {(char) 0xd83d, (char) 0xde00})
+  };
   private static final byte[][] BYTE_ARRAYS = {
     new byte[0], new byte[] {0, 1, -1}, "雪".getBytes(StandardCharsets.UTF_8)
   };

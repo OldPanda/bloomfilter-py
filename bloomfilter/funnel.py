@@ -46,20 +46,22 @@ class StringFunnel(Funnel):
     """Equivalent to Guava's funnel for a standard Java charset."""
 
     _JAVA_STANDARD_CHARSETS = {
-        "ascii": ("ascii", b""),
-        "iso8859-1": ("iso8859-1", b""),
-        "utf-8": ("utf-8", b""),
-        "utf-16": ("utf-16-be", b"\xfe\xff"),
-        "utf-16-be": ("utf-16-be", b""),
-        "utf-16-le": ("utf-16-le", b""),
+        "ascii": ("ascii", b"", "?"),
+        "iso8859-1": ("iso8859-1", b"", "?"),
+        "utf-8": ("utf-8", b"", "?"),
+        "utf-16": ("utf-16-be", b"\xfe\xff", "\ufffd"),
+        "utf-16-be": ("utf-16-be", b"", "\ufffd"),
+        "utf-16-le": ("utf-16-le", b"", "\ufffd"),
     }
 
     def __init__(self, encoding: str = "utf-8") -> None:
         self.encoding = codecs.lookup(encoding).name
         try:
-            self._python_encoding, self._prefix = self._JAVA_STANDARD_CHARSETS[
-                self.encoding
-            ]
+            (
+                self._python_encoding,
+                self._prefix,
+                self._malformed_replacement,
+            ) = self._JAVA_STANDARD_CHARSETS[self.encoding]
         except KeyError as exc:
             raise ValueError(
                 "StringFunnel supports only Java standard charsets: "
@@ -71,7 +73,31 @@ class StringFunnel(Funnel):
             raise TypeError("StringFunnel values must be strings")
         if not value:
             return b""
-        return self._prefix + value.encode(self._python_encoding, errors="replace")
+        normalized = self._normalize_surrogates(value, self._malformed_replacement)
+        return self._prefix + normalized.encode(self._python_encoding, errors="replace")
+
+    @staticmethod
+    def _normalize_surrogates(value: str, malformed_replacement: str) -> str:
+        result = []
+        index = 0
+        while index < len(value):
+            codepoint = ord(value[index])
+            if 0xD800 <= codepoint <= 0xDBFF:
+                if index + 1 < len(value):
+                    low = ord(value[index + 1])
+                    if 0xDC00 <= low <= 0xDFFF:
+                        result.append(
+                            chr(0x10000 + ((codepoint - 0xD800) << 10) + low - 0xDC00)
+                        )
+                        index += 2
+                        continue
+                result.append(malformed_replacement)
+            elif 0xDC00 <= codepoint <= 0xDFFF:
+                result.append(malformed_replacement)
+            else:
+                result.append(value[index])
+            index += 1
+        return "".join(result)
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, StringFunnel) and self.encoding == other.encoding

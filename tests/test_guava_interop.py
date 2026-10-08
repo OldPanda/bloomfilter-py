@@ -20,8 +20,16 @@ class GuavaInteropTest(unittest.TestCase):
     CASES = (
         ("integer", INTEGER_FUNNEL, (-(2**31), -1, 0, 1, 2**31 - 1)),
         ("long", LONG_FUNNEL, (-(2**63), -(2**31) - 1, 0, 2**31, 2**63 - 1)),
-        ("string", UTF8_STRING_FUNNEL, ("", "hello", "雪", "emoji 😀")),
-        ("string-utf16", StringFunnel("utf-16"), ("", "hello", "雪", "emoji 😀")),
+        (
+            "string",
+            UTF8_STRING_FUNNEL,
+            ("", "hello", "雪", "emoji 😀", "\ud800", "\ud83d\ude00"),
+        ),
+        (
+            "string-utf16",
+            StringFunnel("utf-16"),
+            ("", "hello", "雪", "emoji 😀", "\ud800", "\ud83d\ude00"),
+        ),
         ("bytes", BYTE_ARRAY_FUNNEL, (b"", b"\x00\x01\xff", "雪".encode())),
     )
 
