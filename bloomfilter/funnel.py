@@ -8,7 +8,7 @@ class Funnel(ABC):
 
     @abstractmethod
     def encode(self, value: typing.Any) -> bytes:
-        pass
+        raise NotImplementedError  # pragma: no cover
 
 
 class IntegerFunnel(Funnel):

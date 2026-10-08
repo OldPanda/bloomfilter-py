@@ -27,7 +27,7 @@ class Strategy(ABC):
         array: bitarray,
         funnel: Funnel = LEGACY_FUNNEL,
     ) -> bool:
-        pass
+        raise NotImplementedError  # pragma: no cover
 
     @classmethod
     @abstractmethod
@@ -38,12 +38,12 @@ class Strategy(ABC):
         array: bitarray,
         funnel: Funnel = LEGACY_FUNNEL,
     ) -> bool:
-        pass
+        raise NotImplementedError  # pragma: no cover
 
     @classmethod
     @abstractmethod
     def ordinal(cls) -> int:
-        pass
+        raise NotImplementedError  # pragma: no cover
 
 
 class MURMUR128_MITZ_32(Strategy):
