@@ -31,3 +31,32 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: true
+
+  guava-interop:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.14'
+    - name: Set up Java
+      uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: '17'
+    - name: Install Python package
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install . pytest
+    - name: Download Guava 33.7.2
+      run: |
+        curl --fail --location --silent --show-error \
+          --output "$RUNNER_TEMP/guava-33.7.2-jre.jar" \
+          https://repo1.maven.org/maven2/com/google/guava/guava/33.7.2-jre/guava-33.7.2-jre.jar
+        echo "b530942257fb935f8b2cfaa5f8eb5bd59c555fd8e8d01b8ce98912e077ea606c  $RUNNER_TEMP/guava-33.7.2-jre.jar" \
+          | sha256sum --check
+    - name: Bidirectional Guava interoperability tests
+      env:
+        GUAVA_JAR: ${{ runner.temp }}/guava-33.7.2-jre.jar
+      run: pytest -v tests/test_guava_interop.py

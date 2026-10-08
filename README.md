@@ -145,6 +145,19 @@ Run the complete test suite:
 python -m pytest -v
 ```
 
+The bidirectional Java integration test requires a JDK and a Guava JAR. Point
+`GUAVA_JAR` at the JAR to compile the included Java helper and verify both
+Guava-to-Python and Python-to-Guava serialization:
+
+```bash
+GUAVA_JAR=/path/to/guava-33.7.2-jre.jar \
+  python -m pytest -v tests/test_guava_interop.py
+```
+
+The test is skipped when those prerequisites are unavailable. CI downloads the
+pinned Guava release, verifies its SHA-256 checksum, and runs the test as a
+required separate job.
+
 To run the same formatting, type, and security checks used during development,
 install the additional tools and execute:
 
