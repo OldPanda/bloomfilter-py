@@ -37,6 +37,41 @@ False
 >>>
 ```
 
+### Guava Funnel Compatibility
+
+Guava's compact BloomFilter format stores the hash strategy and bit array, but
+does not store its `Funnel`. To query a filter produced by Guava, select the
+same funnel that was used in Java:
+
+```Python
+from bloomfilter import BloomFilter, INTEGER_FUNNEL
+
+with open("guava-filter.out", "rb") as f:
+    bloom_filter = BloomFilter.loads(f.read(), funnel=INTEGER_FUNNEL)
+```
+
+The built-in mappings are:
+
+| Java funnel | bloomfilter-py funnel |
+| --- | --- |
+| `Funnels.integerFunnel()` | `INTEGER_FUNNEL` |
+| `Funnels.longFunnel()` | `LONG_FUNNEL` |
+| `Funnels.stringFunnel(StandardCharsets.UTF_8)` | `UTF8_STRING_FUNNEL` |
+| `Funnels.byteArrayFunnel()` | `BYTE_ARRAY_FUNNEL` |
+
+Use the same funnel when creating a filter that Java will read:
+
+```Python
+from bloomfilter import BloomFilter, LONG_FUNNEL
+
+bloom_filter = BloomFilter(500, 0.01, funnel=LONG_FUNNEL)
+bloom_filter.put(1)  # Encoded as a Java long even though 1 fits in an int.
+```
+
+Calls that omit `funnel` retain the historical bloomfilter-py behavior, which
+chooses integer width from each value and therefore is not suitable for all
+Guava interoperability scenarios.
+
 ### Serialize Bloomfilter
 You can easily serialize `BloomFilter` instance to a byte array
 ```Python
@@ -109,6 +144,19 @@ Run the complete test suite:
 ```bash
 python -m pytest -v
 ```
+
+The bidirectional Java integration test requires a JDK and a Guava JAR. Point
+`GUAVA_JAR` at the JAR to compile the included Java helper and verify both
+Guava-to-Python and Python-to-Guava serialization:
+
+```bash
+GUAVA_JAR=/path/to/guava-33.7.2-jre.jar \
+  python -m pytest -v tests/test_guava_interop.py
+```
+
+The test is skipped when those prerequisites are unavailable. CI downloads the
+pinned Guava release, verifies its SHA-256 checksum, and runs the test as a
+required separate job.
 
 To run the same formatting, type, and security checks used during development,
 install the additional tools and execute:

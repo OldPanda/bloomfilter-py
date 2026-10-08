@@ -4,6 +4,7 @@ import math
 import typing
 
 from bitarray import bitarray
+from bloomfilter.funnel import Funnel, LEGACY_FUNNEL
 from bloomfilter.bloomfilter_strategy import (
     Strategy,
     MURMUR128_MITZ_32,
@@ -23,6 +24,8 @@ class BloomFilter:
     :type err_rate: float
     :param strategy: Hashing strategy.
     :type strategy: :class:`~bloomfilter.MURMUR128_MITZ_32` or :class:`~bloomfilter.MURMUR128_MITZ_64`. Will use :class:`~bloomfilter.MURMUR128_MITZ_64` by default.
+    :param funnel: Encoder matching the Guava Funnel used by the other side.
+    :type funnel: :class:`~bloomfilter.Funnel`
     """
 
     # Keep allocations bounded when sizing parameters or serialized filters come
@@ -38,6 +41,7 @@ class BloomFilter:
         expected_insertions: int,
         err_rate: float,
         strategy: typing.Type[Strategy] = MURMUR128_MITZ_64,
+        funnel: Funnel = LEGACY_FUNNEL,
     ):
         if err_rate <= 0:
             raise ValueError("Error rate must be > 0.0")
@@ -66,10 +70,14 @@ class BloomFilter:
             )
         data = bitarray(allocated_bits)
         data.setall(0)
-        self.setup(num_hash_functions, data, strategy)
+        self.setup(num_hash_functions, data, strategy, funnel)
 
     def setup(
-        self, num_hash_functions: int, data: bitarray, strategy: typing.Type[Strategy]
+        self,
+        num_hash_functions: int,
+        data: bitarray,
+        strategy: typing.Type[Strategy],
+        funnel: Funnel = LEGACY_FUNNEL,
     ) -> None:
         if not 1 <= num_hash_functions <= self.MAX_NUM_HASH_FUNCTIONS:
             raise ValueError(
@@ -91,14 +99,17 @@ class BloomFilter:
         self.num_hash_functions = num_hash_functions
         self.data = data
         self.strategy = strategy
+        self.funnel = funnel
 
     @classmethod
-    def loads(cls, array: bytes) -> "BloomFilter":
+    def loads(cls, array: bytes, funnel: Funnel = LEGACY_FUNNEL) -> "BloomFilter":
         """
         Initialize Bloomfilter instance given dump bytes.
 
         :param array: BloomFilter dumped bytes.
         :type array: bytes
+        :param funnel: Encoder matching the Funnel used to populate the filter.
+        :type funnel: :class:`~bloomfilter.Funnel`
         """
         if len(array) < cls._SERIALIZED_HEADER_SIZE:
             raise ValueError("Serialized BloomFilter is shorter than its header")
@@ -143,22 +154,26 @@ class BloomFilter:
             entry = bitarray()
             entry.frombytes(array[i : i + cls._BYTES_PER_DATA_WORD])
             data += entry[::-1]
-        instance = cls(0, 0.01, strategy=strategy)
-        instance.setup(num_hash_functions, data, strategy)
+        instance = cls(0, 0.01, strategy=strategy, funnel=funnel)
+        instance.setup(num_hash_functions, data, strategy, funnel)
         return instance
 
     @classmethod
-    def loads_from_hex(cls, hex_str: str) -> "BloomFilter":
+    def loads_from_hex(
+        cls, hex_str: str, funnel: Funnel = LEGACY_FUNNEL
+    ) -> "BloomFilter":
         """
         Initialize Bloomfilter instance from hex string.
 
         :param hex_str: BloomFilter dumped hex string.
         :type hex_str: str
         """
-        return cls.loads(bytes.fromhex(hex_str))
+        return cls.loads(bytes.fromhex(hex_str), funnel=funnel)
 
     @classmethod
-    def loads_from_base64(cls, base64_encoded_bytes: bytes) -> "BloomFilter":
+    def loads_from_base64(
+        cls, base64_encoded_bytes: bytes, funnel: Funnel = LEGACY_FUNNEL
+    ) -> "BloomFilter":
         """
         Initialize Bloomfilter instance from base64 encoded bytes.
 
@@ -169,13 +184,13 @@ class BloomFilter:
             decoded = base64.b64decode(base64_encoded_bytes, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("Invalid Base64-encoded BloomFilter") from exc
-        return cls.loads(decoded)
+        return cls.loads(decoded, funnel=funnel)
 
     def dumps(self) -> bytes:
         """
         Serialize BloomFilter instance to bytes.
         """
-        self.setup(self.num_hash_functions, self.data, self.strategy)
+        self.setup(self.num_hash_functions, self.data, self.strategy, self.funnel)
         result = bytearray()
         result.extend(self.strategy.ordinal().to_bytes(1, byteorder="little"))
         result.extend(self.num_hash_functions.to_bytes(1, byteorder="little"))
@@ -230,17 +245,19 @@ class BloomFilter:
         """
         return max(1, round(num_bits / expected_insertions * math.log(2)))
 
-    def put(self, key: typing.Union[int, str]) -> bool:
+    def put(self, key: typing.Any) -> bool:
         """
         Put an element into the Bloomfilter.
         """
-        return self.strategy.put(key, self.num_hash_functions, self.data)
+        return self.strategy.put(key, self.num_hash_functions, self.data, self.funnel)
 
-    def might_contain(self, key: typing.Union[int, str]) -> bool:
+    def might_contain(self, key: typing.Any) -> bool:
         """
         Return ``True`` if given element exists in Bloomfilter. Otherwise return ``False``.
         """
-        return self.strategy.might_contain(key, self.num_hash_functions, self.data)
+        return self.strategy.might_contain(
+            key, self.num_hash_functions, self.data, self.funnel
+        )
 
-    def __contains__(self, key: typing.Union[int, str]) -> bool:
+    def __contains__(self, key: typing.Any) -> bool:
         return self.might_contain(key)

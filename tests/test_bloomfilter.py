@@ -3,12 +3,31 @@ import unittest
 from unittest.mock import patch
 
 from bitarray import bitarray
-from bloomfilter import BloomFilter
+from bloomfilter import (
+    BYTE_ARRAY_FUNNEL,
+    INTEGER_FUNNEL,
+    LEGACY_FUNNEL,
+    LONG_FUNNEL,
+    UTF8_STRING_FUNNEL,
+    BloomFilter,
+    StringFunnel,
+)
 from bloomfilter.bloomfilter_strategy import MURMUR128_MITZ_32, MURMUR128_MITZ_64
 from tests import read_data
 
 
 class BloomFilterTest(unittest.TestCase):
+    def test_rejects_invalid_constructor_arguments(self) -> None:
+        cases = [
+            ((1, 0.0), "must be > 0.0"),
+            ((1, 1.0), "must be < 1.0"),
+            ((-1, 0.01), "must be >= 0"),
+        ]
+        for arguments, message in cases:
+            with self.subTest(arguments=arguments):
+                with self.assertRaisesRegex(ValueError, message):
+                    BloomFilter(*arguments)
+
     def test_num_of_bits(self) -> None:
         test_cases = [(500, 0.01, 4792), (500, 0.0, 774727), (10, 0.01, 95)]
         for case in test_cases:
@@ -77,6 +96,21 @@ class BloomFilterTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "integers or strings"):
             bloom_filter.put(1.5)  # type: ignore[arg-type]
 
+    def test_legacy_funnel_preserves_boolean_keys(self) -> None:
+        for strategy in (MURMUR128_MITZ_32, MURMUR128_MITZ_64):
+            with self.subTest(strategy=strategy):
+                boolean_filter = BloomFilter(100, 0.01, strategy)
+                integer_filter = BloomFilter(100, 0.01, strategy)
+
+                boolean_filter.put(False)
+                boolean_filter.put(True)
+                integer_filter.put(0)
+                integer_filter.put(1)
+
+                self.assertEqual(boolean_filter.data, integer_filter.data)
+                self.assertTrue(boolean_filter.might_contain(False))
+                self.assertTrue(boolean_filter.might_contain(True))
+
     def test_dumps(self) -> None:
         bloom_filter = BloomFilter(300, 0.0001, MURMUR128_MITZ_32)
         for i in range(100):
@@ -111,6 +145,7 @@ class BloomFilterTest(unittest.TestCase):
 
         invalid_payloads = [
             b"",
+            bytes([2]) + serialized[1:],
             bytes([serialized[0], 0]) + serialized[2:],
             bytes([serialized[0], serialized[1]]) + bytes(4),
             serialized[:-1],
@@ -150,7 +185,9 @@ class BloomFilterTest(unittest.TestCase):
                 bloom_filter.setup(1, bitarray(128), MURMUR128_MITZ_64)
 
     def test_guava_compatibility(self) -> None:
-        bloom_filter = BloomFilter.loads(read_data("500_0_01_0_to_99_test.out"))
+        bloom_filter = BloomFilter.loads(
+            read_data("500_0_01_0_to_99_test.out"), funnel=INTEGER_FUNNEL
+        )
         num_bits = BloomFilter.num_of_bits(500, 0.01)
         num_hash_functions = BloomFilter.num_of_hash_functions(500, num_bits)
         self.assertEqual(
@@ -164,7 +201,9 @@ class BloomFilterTest(unittest.TestCase):
                 f"Number {i} is expected to be in bloomfilter",
             )
 
-        bloom_filter = BloomFilter.loads(read_data("100_0_001_0_to_49_test.out"))
+        bloom_filter = BloomFilter.loads(
+            read_data("100_0_001_0_to_49_test.out"), funnel=INTEGER_FUNNEL
+        )
         num_bits = BloomFilter.num_of_bits(100, 0.001)
         num_hash_functions = BloomFilter.num_of_hash_functions(100, num_bits)
         self.assertEqual(
@@ -177,6 +216,153 @@ class BloomFilterTest(unittest.TestCase):
                 bloom_filter.might_contain(i),
                 f"Number {i} is expected to be in bloomfilter",
             )
+
+    def test_guava_murmur128_mitz_32_vector(self) -> None:
+        """Exercise signed int overflow using a fixed Guava-compatible vector."""
+        bloom_filter = BloomFilter(1, 0.01, MURMUR128_MITZ_32, funnel=INTEGER_FUNNEL)
+
+        self.assertFalse(bloom_filter.might_contain(0))
+        bloom_filter.put(0)
+
+        self.assertEqual(bloom_filter.dumps().hex(), "0006000000010045004000280000")
+
+    def test_guava_funnel_vectors(self) -> None:
+        vectors = [
+            (
+                MURMUR128_MITZ_32,
+                INTEGER_FUNNEL,
+                0,
+                "0006000000010045004000280000",
+            ),
+            (
+                MURMUR128_MITZ_32,
+                LONG_FUNNEL,
+                0,
+                "0006000000012201048200000000",
+            ),
+            (
+                MURMUR128_MITZ_32,
+                UTF8_STRING_FUNNEL,
+                "雪",
+                "0006000000010104000410004040",
+            ),
+            (
+                MURMUR128_MITZ_32,
+                BYTE_ARRAY_FUNNEL,
+                b"abc\x00",
+                "0006000000010001000100800181",
+            ),
+            (
+                MURMUR128_MITZ_64,
+                INTEGER_FUNNEL,
+                0,
+                "0106000000011002200040008001",
+            ),
+            (
+                MURMUR128_MITZ_64,
+                LONG_FUNNEL,
+                0,
+                "0106000000010000802020080802",
+            ),
+            (
+                MURMUR128_MITZ_64,
+                UTF8_STRING_FUNNEL,
+                "雪",
+                "0106000000018080808000808000",
+            ),
+            (
+                MURMUR128_MITZ_64,
+                BYTE_ARRAY_FUNNEL,
+                b"abc\x00",
+                "0106000000010100408020080004",
+            ),
+        ]
+
+        for strategy, funnel, value, expected_hex in vectors:
+            with self.subTest(strategy=strategy, funnel=funnel):
+                bloom_filter = BloomFilter(1, 0.01, strategy, funnel=funnel)
+                bloom_filter.put(value)
+                self.assertEqual(bloom_filter.dumps().hex(), expected_hex)
+
+                loaded = BloomFilter.loads(bytes.fromhex(expected_hex), funnel=funnel)
+                self.assertTrue(loaded.might_contain(value))
+                self.assertEqual(loaded.dumps().hex(), expected_hex)
+
+    def test_integer_funnel_width_is_fixed(self) -> None:
+        int_filter = BloomFilter(100, 0.01, funnel=INTEGER_FUNNEL)
+        long_filter = BloomFilter(100, 0.01, funnel=LONG_FUNNEL)
+
+        int_filter.put(1)
+        long_filter.put(1)
+
+        self.assertNotEqual(int_filter.data, long_filter.data)
+        self.assertTrue(int_filter.might_contain(1))
+        self.assertTrue(long_filter.might_contain(1))
+
+    def test_explicit_integer_funnel_boundaries(self) -> None:
+        cases = [
+            (INTEGER_FUNNEL, [-(2**31), -1, 0, 2**31 - 1]),
+            (LONG_FUNNEL, [-(2**63), -(2**31) - 1, -1, 0, 2**31, 2**63 - 1]),
+        ]
+
+        for strategy in (MURMUR128_MITZ_32, MURMUR128_MITZ_64):
+            for funnel, values in cases:
+                with self.subTest(strategy=strategy, funnel=funnel):
+                    bloom_filter = BloomFilter(100, 0.01, strategy, funnel=funnel)
+                    for value in values:
+                        bloom_filter.put(value)
+                    for value in values:
+                        self.assertTrue(bloom_filter.might_contain(value))
+
+    def test_funnel_type_and_range_validation(self) -> None:
+        cases = [
+            (INTEGER_FUNNEL, 2**31, ValueError),
+            (INTEGER_FUNNEL, "1", TypeError),
+            (LONG_FUNNEL, 2**63, ValueError),
+            (LONG_FUNNEL, "1", TypeError),
+            (UTF8_STRING_FUNNEL, b"text", TypeError),
+            (BYTE_ARRAY_FUNNEL, "text", TypeError),
+        ]
+
+        for funnel, value, error in cases:
+            with self.subTest(funnel=funnel, value=value):
+                bloom_filter = BloomFilter(10, 0.01, funnel=funnel)
+                with self.assertRaises(error):
+                    bloom_filter.put(value)
+
+    def test_string_funnel_identity(self) -> None:
+        utf8 = StringFunnel("utf8")
+        utf8_alias = StringFunnel("UTF-8")
+
+        self.assertEqual(utf8, utf8_alias)
+        self.assertNotEqual(utf8, StringFunnel("utf-16"))
+        self.assertNotEqual(utf8, LEGACY_FUNNEL)
+        self.assertEqual(hash(utf8), hash(utf8_alias))
+
+    def test_string_funnel_matches_java_standard_charsets(self) -> None:
+        cases = [
+            ("US-ASCII", "a", "61"),
+            ("ISO-8859-1", "é", "e9"),
+            ("UTF-8", "雪", "e99baa"),
+            ("UTF-16", "", ""),
+            ("UTF-16", "a", "feff0061"),
+            ("UTF-16", "\ud800", "fefffffd"),
+            ("UTF-16BE", "a", "0061"),
+            ("UTF-16BE", "\udc00", "fffd"),
+            ("UTF-16LE", "a", "6100"),
+            ("UTF-16LE", "\ud800", "fdff"),
+            ("UTF-8", "\ud800", "3f"),
+            ("UTF-8", "\ud83d\ude00", "f09f9880"),
+        ]
+
+        for encoding, value, expected_hex in cases:
+            with self.subTest(encoding=encoding):
+                self.assertEqual(
+                    StringFunnel(encoding).encode(value).hex(), expected_hex
+                )
+
+        with self.assertRaisesRegex(ValueError, "Java standard charsets"):
+            StringFunnel("cp1252")
 
     def test_dumps_to_hex(self) -> None:
         bloom_filter = BloomFilter(500, 0.0001, MURMUR128_MITZ_32)
