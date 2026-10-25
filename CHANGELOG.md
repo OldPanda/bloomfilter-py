@@ -1,7 +1,9 @@
 # Changelog
 
-## 2.0.0rc1
+## 2.0.0
 
+- Retain master security checks that bound hexadecimal and Base64 decoding
+  before allocating the complete serialized payload.
 - Remove all mandatory runtime dependencies; ship packed bit storage and a
   seed-zero MurmurHash3 x64_128 implementation supporting Python 3.8+.
 - Add explicit `backend="python"` (default) and `backend="native"` modes.
@@ -16,4 +18,5 @@
 - Add fixed and random hash differential tests, packed-bit/backend tests,
   memory checks, packaging validation, benchmarks and a dual-backend CI matrix.
 
-This is a release candidate; publishing it requires a separate release action.
+Public bit storage and external-array aliasing changes require a major version.
+The version is prepared locally; publishing requires a separate release action.

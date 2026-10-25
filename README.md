@@ -332,3 +332,25 @@ Build and verify release artifacts with `python -m build` followed by
 `python scripts/verify_distribution.py dist`. The latter installs the wheel
 offline into a clean temporary environment and verifies it outside the source
 path, including the absence of mandatory runtime dependencies.
+
+### Auditing compatibility against an earlier checkout
+
+Use an environment containing the baseline's dependencies to compare actual
+behavior in separate processes:
+
+```bash
+python scripts/check_api_compatibility.py --baseline /path/to/baseline \
+  --candidate . --output compatibility.json
+```
+
+The audit checks twelve strategy/funnel combinations, serialized bytes, query
+results, copies/merges/statistics, streams, custom hashes and existing call
+signatures. It separately reports changes to bit-storage type, third-party
+methods, buffer support and `setup` input aliasing. A successful audit command
+means the comparison completed; inspect `fully_backward_compatible` for the
+compatibility verdict. Version 2.0 preserves the tested core operations but
+changes these public storage behaviors, so it is a major release.
+
+Hex and Base64 loaders include the master allocation-bound security update:
+encoded sizes and headers are checked before full Base64 decoding, and hex
+inputs are decoded in bounded chunks even with substantial whitespace.
