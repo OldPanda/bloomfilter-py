@@ -1,3 +1,4 @@
+from bloomfilter._bitarray import BitArray
 from bloomfilter.bloomfilter import BloomFilter
 from bloomfilter.funnel import (
     BYTE_ARRAY_FUNNEL,
@@ -11,6 +12,7 @@ from bloomfilter.funnel import (
 
 __all__ = [
     "BloomFilter",
+    "BitArray",
     "Funnel",
     "StringFunnel",
     "INTEGER_FUNNEL",

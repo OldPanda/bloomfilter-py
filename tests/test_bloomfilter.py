@@ -4,7 +4,7 @@ import random
 import unittest
 from unittest.mock import patch
 
-from bitarray import bitarray
+from bloomfilter._bitarray import BitArray as bitarray
 from bloomfilter import (
     BYTE_ARRAY_FUNNEL,
     INTEGER_FUNNEL,
