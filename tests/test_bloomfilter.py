@@ -1,3 +1,4 @@
+import array
 import base64
 import random
 import unittest
@@ -28,6 +29,123 @@ class BloomFilterTest(unittest.TestCase):
             with self.subTest(arguments=arguments):
                 with self.assertRaisesRegex(ValueError, message):
                     BloomFilter(*arguments)
+
+    def test_hex_loader_bounds_decoding_before_rejecting_oversized_data(self) -> None:
+        # A valid one-word header followed by excess data must not make either
+        # wrapper decode the entire untrusted input before enforcing its limit.
+        serialized = bytes.fromhex("010100000001") + b"\x00" * 65536
+        with patch(
+            "bloomfilter.bloomfilter.bytes", wraps=bytes, create=True
+        ) as decoder:
+            with self.assertRaises(ValueError):
+                BloomFilter.loads_from_hex(serialized.hex(), max_num_bits=64)
+            self.assertTrue(decoder.fromhex.called)
+            self.assertLessEqual(
+                max(len(call.args[0]) for call in decoder.fromhex.call_args_list),
+                8193,  # One carried nibble may precede the fixed-size chunk.
+            )
+
+    def test_base64_loader_bounds_decoding_before_rejecting_oversized_data(
+        self,
+    ) -> None:
+        serialized = bytes.fromhex("010100000001") + b"\x00" * 65536
+        with patch(
+            "bloomfilter.bloomfilter.base64.b64decode", wraps=base64.b64decode
+        ) as decoder:
+            encoded = base64.b64encode(serialized)
+            with self.assertRaises(ValueError):
+                BloomFilter.loads_from_base64(encoded, max_num_bits=64)
+            self.assertTrue(
+                all(len(call.args[0]) <= 8 for call in decoder.call_args_list)
+            )
+
+    def test_base64_loader_rejects_negative_budget_before_decoding(self) -> None:
+        serialized = bytes.fromhex("010100000001") + b"\x00" * 8
+        encoded = base64.b64encode(serialized)
+        with patch("bloomfilter.bloomfilter.base64.b64decode") as decoder:
+            with self.assertRaises(ValueError):
+                BloomFilter.loads_from_base64(encoded, max_num_bits=-1)
+            decoder.assert_not_called()
+
+    def test_base64_buffer_views_obey_byte_limits(self) -> None:
+        serialized = bytes.fromhex("010100000001") + b"\x00" * 8
+        encoded = base64.b64encode(serialized)
+        for view in (
+            memoryview(encoded).cast("B", shape=[1, len(encoded)]),
+            memoryview(encoded).cast("I"),
+            memoryview(b"".join(bytes([byte, 0]) for byte in encoded))[::2],
+        ):
+            with self.subTest(format=view.format, shape=view.shape):
+                self.assertEqual(
+                    BloomFilter.loads_from_base64(
+                        view, max_num_bits=64  # type: ignore[arg-type]
+                    ).dumps(),
+                    serialized,
+                )
+        oversized = base64.b64encode(serialized + b"\x00" * 65536)
+        for view in (
+            memoryview(oversized).cast("B", shape=[1, len(oversized)]),
+            memoryview(oversized).cast("I"),
+            memoryview(b"".join(bytes([byte, 0]) for byte in oversized))[::2],
+        ):
+            with self.subTest(format=view.format, shape=view.shape):
+                with patch("bloomfilter.bloomfilter.base64.b64decode") as decoder:
+                    with self.assertRaises(ValueError):
+                        BloomFilter.loads_from_base64(
+                            view, max_num_bits=64  # type: ignore[arg-type]
+                        )
+                    decoder.assert_not_called()
+
+    def test_base64_array_buffers_obey_byte_limits(self) -> None:
+        serialized = bytes.fromhex("010100000001") + b"\x00" * 8
+        valid = array.array("I")
+        valid.frombytes(base64.b64encode(serialized))
+        self.assertEqual(
+            BloomFilter.loads_from_base64(
+                valid, max_num_bits=64  # type: ignore[arg-type]
+            ).dumps(),
+            serialized,
+        )
+        oversized = array.array("I")
+        oversized.frombytes(base64.b64encode(serialized + b"\x00" * 44))
+        with patch("bloomfilter.bloomfilter.base64.b64decode") as decoder:
+            with self.assertRaises(ValueError):
+                BloomFilter.loads_from_base64(
+                    oversized, max_num_bits=64  # type: ignore[arg-type]
+                )
+            decoder.assert_not_called()
+
+    def test_hex_whitespace_remains_valid_without_unbounded_decode(self) -> None:
+        serialized = bytes.fromhex("010100000001") + b"\x00" * 8
+        encoded = " \t\n\r\v\f" * 12000 + serialized.hex()
+        with patch(
+            "bloomfilter.bloomfilter.bytes", wraps=bytes, create=True
+        ) as decoder:
+            restored = BloomFilter.loads_from_hex(encoded, max_num_bits=64)
+            self.assertLessEqual(
+                max(len(call.args[0]) for call in decoder.fromhex.call_args_list),
+                8193,  # One carried nibble may precede the fixed-size chunk.
+            )
+        self.assertEqual(restored.dumps(), serialized)
+
+    def test_hex_chunk_boundaries_preserve_byte_whitespace_rules(self) -> None:
+        serialized = bytes.fromhex("010100000001") + b"\x00" * 8
+        for padding in (8190, 8191, 8192, 8193):
+            with self.subTest(padding=padding):
+                valid = " " * padding + " \t".join(
+                    serialized.hex()[i : i + 2]
+                    for i in range(0, len(serialized) * 2, 2)
+                )
+                self.assertEqual(
+                    BloomFilter.loads_from_hex(valid, max_num_bits=64).dumps(),
+                    serialized,
+                )
+                for invalid in ("0 1", "0\t1", "0\n1", "0", "gg", "01\u00a0"):
+                    with self.subTest(invalid=invalid):
+                        with self.assertRaises(ValueError):
+                            BloomFilter.loads_from_hex(
+                                " " * padding + invalid, max_num_bits=64
+                            )
 
     def test_num_of_bits(self) -> None:
         test_cases = [(500, 0.01, 4792), (500, 0.0, 774727), (10, 0.01, 95)]

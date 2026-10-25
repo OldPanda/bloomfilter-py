@@ -224,9 +224,40 @@ class BloomFilter:
         :param hex_str: BloomFilter dumped hex string.
         :type hex_str: str
         """
-        return cls.loads(
-            bytes.fromhex(hex_str), funnel=funnel, max_num_bits=max_num_bits
-        )
+        # fromhex() reserves space from the raw input length, including
+        # whitespace. Decode bounded chunks so padding cannot bypass the cap.
+        data = bytearray()
+        pending = ""
+        expected_length = None
+        whitespace = " \t\n\r\v\f"
+        for offset in range(0, len(hex_str), 8192):
+            chunk = pending + hex_str[offset : offset + 8192]
+            pending = ""
+            digits = len(chunk) - sum(chunk.count(char) for char in whitespace)
+            if digits % 2:
+                # A chunk may split a byte, but whitespace between its two
+                # hex digits is invalid, just as with bytes.fromhex().
+                if chunk[-1] in whitespace:
+                    raise ValueError("Whitespace inside a hexadecimal byte")
+                pending, chunk = chunk[-1], chunk[:-1]
+            decoded = bytes.fromhex(chunk)
+            if (
+                expected_length is None
+                and len(data) + len(decoded) >= cls._SERIALIZED_HEADER_SIZE
+            ):
+                header = bytes(data) + decoded[: cls._SERIALIZED_HEADER_SIZE]
+                _, _, expected_length, _ = cls._parse_header(
+                    header[: cls._SERIALIZED_HEADER_SIZE], max_num_bits
+                )
+            if (
+                expected_length is not None
+                and len(data) + len(decoded) > expected_length
+            ):
+                raise ValueError("Serialized BloomFilter contains excess data")
+            data.extend(decoded)
+        if pending:
+            raise ValueError("Incomplete hexadecimal byte")
+        return cls.loads(bytes(data), funnel=funnel, max_num_bits=max_num_bits)
 
     @classmethod
     def loads_from_base64(
@@ -242,7 +273,39 @@ class BloomFilter:
         :type base64_encoded_bytes: bytes
         """
         try:
-            decoded = base64.b64decode(base64_encoded_bytes, validate=True)
+            limit = cls.MAX_NUM_BITS if max_num_bits is None else max_num_bits
+            if limit < 0:
+                raise ValueError("Maximum number of bits must be >= 0")
+            encoded: typing.Union[str, bytes, bytearray, memoryview]
+            if isinstance(base64_encoded_bytes, (str, bytes, bytearray)):
+                encoded = base64_encoded_bytes
+            else:
+                # The Base64 decoder also accepts other buffer-protocol types.
+                # Inspect their byte length without materializing the buffer.
+                encoded = memoryview(base64_encoded_bytes)
+            encoded_length = (
+                encoded.nbytes if isinstance(encoded, memoryview) else len(encoded)
+            )
+            max_length = (
+                cls._SERIALIZED_HEADER_SIZE
+                + (limit // cls._BITS_PER_DATA_WORD) * cls._BYTES_PER_DATA_WORD
+            )
+            if encoded_length > 4 * ((max_length + 2) // 3):
+                raise ValueError("Encoded BloomFilter exceeds the allocation limit")
+            # Slice buffer inputs by bytes, not dimensions or element size.
+            # A non-contiguous view can only be copied after the byte-size cap.
+            if isinstance(encoded, memoryview):
+                if encoded.c_contiguous:
+                    encoded = encoded.cast("B")
+                else:
+                    encoded = encoded.tobytes()
+            # Eight encoded characters hold the six-byte header. Validate its
+            # size before allowing the decoder to allocate the full payload.
+            header = base64.b64decode(encoded[:8], validate=True)
+            _, _, expected_length, _ = cls._parse_header(header, max_num_bits)
+            if encoded_length > 4 * ((expected_length + 2) // 3):
+                raise ValueError("Serialized BloomFilter contains excess data")
+            decoded = base64.b64decode(encoded, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("Invalid Base64-encoded BloomFilter") from exc
         return cls.loads(decoded, funnel=funnel, max_num_bits=max_num_bits)
