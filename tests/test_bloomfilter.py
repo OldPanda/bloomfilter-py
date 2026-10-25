@@ -59,6 +59,14 @@ class BloomFilterTest(unittest.TestCase):
                 all(len(call.args[0]) <= 8 for call in decoder.call_args_list)
             )
 
+    def test_base64_loader_rejects_negative_budget_before_decoding(self) -> None:
+        serialized = bytes.fromhex("010100000001") + b"\x00" * 8
+        encoded = base64.b64encode(serialized)
+        with patch("bloomfilter.bloomfilter.base64.b64decode") as decoder:
+            with self.assertRaises(ValueError):
+                BloomFilter.loads_from_base64(encoded, max_num_bits=-1)
+            decoder.assert_not_called()
+
     def test_base64_buffer_views_obey_byte_limits(self) -> None:
         serialized = bytes.fromhex("010100000001") + b"\x00" * 8
         encoded = base64.b64encode(serialized)
