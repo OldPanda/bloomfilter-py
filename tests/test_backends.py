@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tracemalloc
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from bloomfilter import (
@@ -170,6 +171,38 @@ class BitArrayTest(unittest.TestCase):
                 BitArray(64).set_guava_chunk(offset, data)
         self.assertNotEqual(BitArray(1), object())
 
+    def test_unsupported_operators_preserve_data(self):
+        for backend in BACKENDS:
+            for operation in ("append", "union"):
+                bits = BitArray(9, backend=backend)
+                bits[0] = bits[-1] = 1
+                before = bits.copy()
+                with self.assertRaises(TypeError):
+                    if operation == "append":
+                        bits += [1, 0]
+                    else:
+                        bits |= [1, 0]
+                self.assertEqual(bits, before)
+
+    def test_cross_backend_equality_detects_different_contents(self):
+        for left_backend in BACKENDS:
+            for right_backend in BACKENDS:
+                left = BitArray(65, backend=left_backend)
+                right = BitArray(65, backend=right_backend)
+                right[-1] = 1
+                self.assertNotEqual(left, right)
+                self.assertNotEqual(right, left)
+
+    def test_count_without_int_bit_count(self):
+        # Exercise the Python 3.8/3.9 capability fallback on newer CI runtimes.
+        for size in (0, 1, 9, CHUNK_BYTES * 8 + 9):
+            bits = BitArray(size)
+            bits[::3] = 1
+            expected = sum(bits)
+            with patch("bloomfilter._bitarray.getattr", return_value=None, create=True):
+                self.assertEqual(bits.count(), expected)
+                self.assertEqual(bits.count(0), size - expected)
+
     def test_bulk_temporaries_are_bounded(self):
         for backend in BACKENDS:
             bits = BitArray(8 * 1024 * 1024, backend=backend)
@@ -249,6 +282,31 @@ class BackendFilterTest(unittest.TestCase):
                     self.assertEqual(clone.backend, backend)
                     self.assertEqual(clone, bf)
 
+    def test_absent_queries_match_across_backends(self):
+        for strategy in (MURMUR128_MITZ_32, MURMUR128_MITZ_64):
+            reference = BloomFilter(1000, 0.01, strategy, INTEGER_FUNNEL)
+            for key in range(100):
+                reference.put(key)
+            queries = list(range(100)) + list(range(1000, 2000))
+            expected = [key in reference for key in queries]
+            self.assertTrue(all(expected[:100]))
+            self.assertFalse(any(expected[100:]))
+            for backend in BACKENDS:
+                loaded = BloomFilter.loads(
+                    reference.dumps(), INTEGER_FUNNEL, backend=backend
+                )
+                self.assertEqual([key in loaded for key in queries], expected)
+
+    def test_setup_without_optional_bitarray_is_atomic(self):
+        bf = BloomFilter(10, 0.01)
+        bf.put("retained")
+        before = bf.dumps()
+        with patch("importlib.import_module", side_effect=ImportError("missing")):
+            with self.assertRaisesRegex(TypeError, "data must be"):
+                bf.setup(1, [0] * 64, MURMUR128_MITZ_64)
+        self.assertEqual(bf.dumps(), before)
+        self.assertIn("retained", bf)
+
     def test_cross_backend_merge_preserves_source(self):
         for left_backend in BACKENDS:
             for right_backend in BACKENDS:
@@ -296,6 +354,29 @@ class BackendFilterTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             bf.setup(1, [0] * 64, MURMUR128_MITZ_64)
 
+    @unittest.skipUnless(HAS_NATIVE, "optional packages not installed")
+    def test_setup_accepts_callable_legacy_endian(self):
+        from bitarray import bitarray
+
+        # Older bitarray versions exposed endian() rather than a property.
+        class LegacyBitarray(bitarray):
+            def endian(self):
+                return super().endian
+
+        for endian in ("big", "little"):
+            raw = LegacyBitarray(64, endian=endian)
+            raw.setall(0)
+            raw[5] = raw[63] = 1
+            bf = BloomFilter(1, 0.01)
+            with patch(
+                "importlib.import_module",
+                return_value=SimpleNamespace(bitarray=LegacyBitarray),
+            ):
+                bf.setup(1, raw, MURMUR128_MITZ_64)
+            self.assertEqual(list(bf.data), list(raw))
+            raw[5] = 0
+            self.assertTrue(bf.data[5])
+
     @unittest.skipUnless(HAS_NATIVE, "optional reference packages not installed")
     def test_direct_strategy_calls_with_legacy_bitarray(self):
         from bitarray import bitarray
@@ -307,6 +388,7 @@ class BackendFilterTest(unittest.TestCase):
             self.assertEqual(strategy.put(42, 7, raw), strategy.put(42, 7, facade))
             self.assertEqual(raw.tobytes(), facade.tobytes())
             self.assertTrue(strategy.might_contain(42, 7, raw))
+            self.assertFalse(strategy.might_contain(-999, 7, raw))
 
     def test_nonfinite_and_oversized_sizing(self):
         for rate in (float("nan"), float("inf"), -float("inf")):
@@ -316,6 +398,9 @@ class BackendFilterTest(unittest.TestCase):
             BloomFilter(1.5, 0.01)
         with self.assertRaises(ValueError):
             BloomFilter(10**1000, 0.01)
+        # Fits in a float, but sizing arithmetic overflows to infinity.
+        with self.assertRaisesRegex(ValueError, "sizing exceeds supported range"):
+            BloomFilter(10**308, 0.01)
         with self.assertRaises(TypeError):
             BloomFilter.loads(BloomFilter(1, 0.01).dumps(), max_num_bits=64.5)
 

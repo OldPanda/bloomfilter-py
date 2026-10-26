@@ -32,6 +32,9 @@ jobs:
         TEST_BACKEND: ${{ matrix.backend }}
       run: |
         python -I -c 'import os; from bloomfilter import BloomFilter; b=BloomFilter(100,.01,backend=os.environ["TEST_BACKEND"]); b.put("smoke"); assert "smoke" in BloomFilter.loads(b.dumps(),backend=b.backend)'
+    - name: Require complete coverage for the reference environment
+      if: matrix.python-version == '3.14' && matrix.backend == 'native'
+      run: python -m coverage report --fail-under=100
     - uses: codecov/codecov-action@v4
       if: matrix.python-version == '3.14' && matrix.backend == 'native'
       with:
