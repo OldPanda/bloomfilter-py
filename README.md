@@ -26,6 +26,68 @@ Here's a brief [introduction](https://en.wikipedia.org/wiki/Bloom_filter) to Blo
 pip install bloomfilter-py
 ```
 
+## Backends and migration from 1.3
+
+Version 2.0 runs on the Python standard library alone. `bitarray` and `mmh3`
+are no longer required to install or import this package. The default is always
+`backend="python"`, even if those packages are already installed. For explicit
+native acceleration:
+
+```bash
+pip install 'bloomfilter-py[native]'
+```
+
+```python
+from bloomfilter import BloomFilter
+
+fast = BloomFilter(500, 0.01, backend="native")
+fast.put("example")
+loaded = BloomFilter.loads(fast.dumps(), backend="native")
+assert "example" in loaded
+assert loaded.backend == "native"
+```
+
+The constructor and all loading methods accept the keyword-only `backend`
+argument (`"python"` or `"native"`). An invalid name raises `ValueError`;
+requesting native mode without **both** optional packages raises `ImportError`
+with installation instructions. There is no automatic fallback. `copy()`
+preserves the backend. Filters using different backends can be compared and
+merged when their strategies, funnels, sizes, and hash counts are compatible.
+Backend choice is not serialized: all old dumps remain readable, and new dumps
+use exactly the same Guava compact format.
+
+Pure Python hashing is slower than the C extension, especially on long keys.
+Native mode is available for throughput-sensitive workloads. Serialization,
+counting, and merging process at most 64 KiB of payload per chunk; copies and
+returned dumps necessarily allocate their complete result. `dumps()` and
+`loads()` also retain full input/output bytes, so use stream methods for large
+filters. Backing storage remains packed (roughly one byte per eight bits).
+
+### Bit storage and custom strategies
+
+`filter.data` is now a `bloomfilter.BitArray` facade with consistent semantics
+on either backend. It supports `len`, iteration, negative/integer indexing,
+slice copies, scalar or equal-length iterable slice assignment, `setall`,
+`count(0/1)`, `copy`, equality, `|=`, `+=`, `frombytes`, and `tobytes`.
+Slices preserve the backend; slice assignment cannot resize. Appending via
+`frombytes` or `+=` works even at non-byte-aligned lengths. `tobytes()` uses
+most-significant-bit-first bytes with zero padding at the end. The buffer
+protocol and the complete third-party `bitarray` API are **not** provided.
+
+Existing `setup(hash_count, data, strategy, funnel)` calls accept this facade.
+For migration, a third-party `bitarray.bitarray` is also accepted when installed;
+it is copied into Python-backed storage and normalized to logical bit order,
+including little-endian inputs. It is no longer aliased to `filter.data`.
+Callers relying on that alias or on third-party-only methods must update.
+Passing a `BitArray` to `setup` retains it, as before, so external mutations
+remain visible. `backend` reflects the current data object.
+
+Custom strategies still receive the same positional `put` / `might_contain`
+arguments, now with the facade as their data argument. Overrides of built-in
+strategies' `hash_key` are honored on both backends. Strategies must not depend
+on private storage fields or a specific third-party data type. Direct calls to built-in strategies with legacy third-party bit arrays remain
+supported. Direct calls to `Strategy.hash_key` always use the standard-library MurmurHash3 implementation.
+
 ## Usage Examples
 
 ### Basic Usage
@@ -236,10 +298,59 @@ install the additional tools and execute:
 
 ```bash
 python -m pip install black mypy bandit
-python -m black --check bloomfilter tests
+python -m black --check bloomfilter tests benchmarks scripts
 python -m mypy bloomfilter --strict
 python -m bandit -r bloomfilter
 ```
 
 On Windows PowerShell, activate the virtual environment with
 `.venv\Scripts\Activate.ps1` instead of `source .venv/bin/activate`.
+
+### Reproducible backend benchmarks
+
+```bash
+python benchmarks/benchmark_backends.py --backend python --output python.json
+python benchmarks/benchmark_backends.py --backend native --output native.json
+# Against a separate checkout of 1.3.0, with its dependencies installed:
+python benchmarks/benchmark_backends.py --backend baseline \
+  --package-path /path/to/1.3.0 --output baseline.json
+```
+
+The script reports median timings, raw repeats, workload sizes, and interpreter
+metadata. It covers fresh and repeated insertions, hits and misses, short and
+long byte keys, serialization, statistics, and merging. Results describe the
+specified workload rather than a universal throughput guarantee.
+
+For the zero-dependency source suite run `python -S -m unittest discover`.
+Install `.[native]` to enable optional differential tests against the C packages.
+The checked-in hash vectors were generated with mmh3 5.3.1 and cover every
+length from 0 through 512 plus larger block boundaries.
+Run Java integration tests for both backends with `BLOOMFILTER_TEST_BACKEND`
+set to `python` and `native` respectively. CI covers Python 3.8 through 3.14.
+
+Build and verify release artifacts with `python -m build` followed by
+`python scripts/verify_distribution.py dist`. The latter installs the wheel
+offline into a clean temporary environment and verifies it outside the source
+path, including the absence of mandatory runtime dependencies.
+
+### Auditing compatibility against an earlier checkout
+
+Use an environment containing the baseline's dependencies to compare actual
+behavior in separate processes:
+
+```bash
+python scripts/check_api_compatibility.py --baseline /path/to/baseline \
+  --candidate . --output compatibility.json
+```
+
+The audit checks twelve strategy/funnel combinations, serialized bytes, query
+results, copies/merges/statistics, streams, custom hashes and existing call
+signatures. It separately reports changes to bit-storage type, third-party
+methods, buffer support and `setup` input aliasing. A successful audit command
+means the comparison completed; inspect `fully_backward_compatible` for the
+compatibility verdict. Version 2.0 preserves the tested core operations but
+changes these public storage behaviors, so it is a major release.
+
+Hex and Base64 loaders include the master allocation-bound security update:
+encoded sizes and headers are checked before full Base64 decoding, and hex
+inputs are decoded in bounded chunks even with substantial whitespace.

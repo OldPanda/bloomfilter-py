@@ -17,6 +17,8 @@ from bloomfilter import (
 )
 from bloomfilter.bloomfilter_strategy import MURMUR128_MITZ_32, MURMUR128_MITZ_64
 
+BACKEND = os.environ.get("BLOOMFILTER_TEST_BACKEND", "python")
+
 
 class GuavaInteropTest(unittest.TestCase):
     CASES = (
@@ -101,7 +103,7 @@ class GuavaInteropTest(unittest.TestCase):
             with self.subTest(expected_insertions=expected_insertions, fpp=fpp):
                 java_description = self.run_sizing_helper(expected_insertions, fpp)
                 bloom_filter = BloomFilter(
-                    expected_insertions, fpp, funnel=INTEGER_FUNNEL
+                    expected_insertions, fpp, funnel=INTEGER_FUNNEL, backend=BACKEND
                 )
                 serialized = bloom_filter.dumps()
                 python_description = ",".join(
@@ -125,14 +127,14 @@ class GuavaInteropTest(unittest.TestCase):
                             strategy=strategy, hashes=hash_count, bits=bit_count
                         ):
                             bloom_filter = BloomFilter(
-                                1, 0.01, strategy, INTEGER_FUNNEL
+                                1, 0.01, strategy, INTEGER_FUNNEL, backend=BACKEND
                             )
                             bloom_filter.num_hash_functions = hash_count
                             bloom_filter.data.setall(0)
                             bloom_filter.data[:bit_count] = True
                             path.write_bytes(bloom_filter.dumps())
                             loaded = BloomFilter.loads(
-                                path.read_bytes(), INTEGER_FUNNEL
+                                path.read_bytes(), INTEGER_FUNNEL, backend=BACKEND
                             )
                             fpp, count, size = self.run_helper(
                                 "statistics", "integer", path
@@ -156,7 +158,9 @@ class GuavaInteropTest(unittest.TestCase):
             path = Path(directory) / "operations.bin"
             for strategy in (MURMUR128_MITZ_32, MURMUR128_MITZ_64):
                 with self.subTest(strategy=strategy):
-                    original = BloomFilter(100, 0.01, strategy, INTEGER_FUNNEL)
+                    original = BloomFilter(
+                        100, 0.01, strategy, INTEGER_FUNNEL, backend=BACKEND
+                    )
                     for value in range(20):
                         original.put(value)
                     path.write_bytes(original.dumps())
@@ -164,7 +168,9 @@ class GuavaInteropTest(unittest.TestCase):
                         "operations", "integer", path
                     ).splitlines()
                     with path.open("rb") as stream:
-                        loaded = BloomFilter.read_from(stream, INTEGER_FUNNEL)
+                        loaded = BloomFilter.read_from(
+                            stream, INTEGER_FUNNEL, backend=BACKEND
+                        )
                     copied = loaded.copy()
                     self.assertEqual(loaded, copied)
                     self.assertTrue(loaded.is_compatible(copied))
@@ -192,8 +198,12 @@ class GuavaInteropTest(unittest.TestCase):
                     self.run_helper("write", funnel_name, path)
                     serialized = path.read_bytes()
 
-                    bloom_filter = BloomFilter.loads(serialized, funnel=funnel)
-                    python_filter = BloomFilter(100, 0.01, funnel=funnel)
+                    bloom_filter = BloomFilter.loads(
+                        serialized, funnel=funnel, backend=BACKEND
+                    )
+                    python_filter = BloomFilter(
+                        100, 0.01, funnel=funnel, backend=BACKEND
+                    )
                     self.assertEqual(python_filter.dumps()[:6], serialized[:6])
                     self.assertEqual(len(python_filter.dumps()), len(serialized))
                     for value in values:
@@ -207,7 +217,9 @@ class GuavaInteropTest(unittest.TestCase):
                     path = Path(directory) / f"behavior-{funnel_name}.bin"
                     self.run_helper("write", funnel_name, path)
 
-                    bloom_filter = BloomFilter.loads(path.read_bytes(), funnel=funnel)
+                    bloom_filter = BloomFilter.loads(
+                        path.read_bytes(), funnel=funnel, backend=BACKEND
+                    )
                     java_results = self.run_helper("probe", funnel_name, path)
                     python_results = "".join(
                         "1" if bloom_filter.might_contain(value) else "0"
@@ -228,7 +240,7 @@ class GuavaInteropTest(unittest.TestCase):
 
     @staticmethod
     def create_filter(funnel: Funnel, values: tuple) -> BloomFilter:
-        bloom_filter = BloomFilter(100, 0.01, funnel=funnel)
+        bloom_filter = BloomFilter(100, 0.01, funnel=funnel, backend=BACKEND)
         for value in values:
             bloom_filter.put(value)
         return bloom_filter

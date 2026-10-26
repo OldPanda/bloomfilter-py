@@ -2,9 +2,10 @@ import base64
 import binascii
 import io
 import math
+import operator
 import typing
 
-from bitarray import bitarray
+from bloomfilter._bitarray import BitArray, CHUNK_BYTES, validate_backend, _REVERSE
 from bloomfilter.funnel import Funnel, LEGACY_FUNNEL
 from bloomfilter.bloomfilter_strategy import (
     Strategy,
@@ -43,7 +44,13 @@ class BloomFilter:
         err_rate: float,
         strategy: typing.Type[Strategy] = MURMUR128_MITZ_64,
         funnel: Funnel = LEGACY_FUNNEL,
-    ):
+        *,
+        backend: str = "python",
+    ) -> None:
+        backend = validate_backend(backend)
+        expected_insertions = operator.index(expected_insertions)
+        if not math.isfinite(err_rate):
+            raise ValueError("Error rate must be finite")
         if err_rate <= 0:
             raise ValueError("Error rate must be > 0.0")
         if err_rate >= 1:
@@ -58,7 +65,8 @@ class BloomFilter:
         num_hash_functions = self.num_of_hash_functions_for_error_rate(err_rate)
         allocated_bits = max(
             self._BITS_PER_DATA_WORD,
-            math.ceil(num_bits / self._BITS_PER_DATA_WORD) * self._BITS_PER_DATA_WORD,
+            ((num_bits + self._BITS_PER_DATA_WORD - 1) // self._BITS_PER_DATA_WORD)
+            * self._BITS_PER_DATA_WORD,
         )
         if allocated_bits > self.MAX_NUM_BITS:
             raise ValueError(
@@ -70,17 +78,22 @@ class BloomFilter:
                 f"BloomFilter requires {num_hash_functions} hash functions; "
                 f"maximum is {self.MAX_NUM_HASH_FUNCTIONS}"
             )
-        data = bitarray(allocated_bits)
-        data.setall(0)
+        data = BitArray(allocated_bits, backend=backend)
         self.setup(num_hash_functions, data, strategy, funnel)
+
+    @property
+    def backend(self) -> str:
+        """Selected backend; never inferred from installed packages."""
+        return self.data.backend
 
     def setup(
         self,
         num_hash_functions: int,
-        data: bitarray,
+        data: BitArray,
         strategy: typing.Type[Strategy],
         funnel: Funnel = LEGACY_FUNNEL,
     ) -> None:
+        num_hash_functions = operator.index(num_hash_functions)
         if not 1 <= num_hash_functions <= self.MAX_NUM_HASH_FUNCTIONS:
             raise ValueError(
                 "Number of hash functions must be between 1 and "
@@ -99,6 +112,27 @@ class BloomFilter:
                 f"BloomFilter data contains {len(data)} bits; "
                 f"maximum is {max_num_bits}"
             )
+        if not isinstance(data, BitArray):
+            # Legacy setup accepted bitarray.bitarray. Import it only for this
+            # explicit compatibility path; normalize endian and take ownership.
+            try:
+                from importlib import import_module
+
+                factory = import_module("bitarray").bitarray
+            except ImportError as exc:
+                raise TypeError("data must be a bloomfilter.BitArray") from exc
+            if not isinstance(data, factory):
+                raise TypeError("data must be a BitArray or bitarray.bitarray")
+            normalized = BitArray(len(data))
+            endian = data.endian
+            if callable(endian):
+                endian = endian()
+            for start in range(0, len(data), CHUNK_BYTES * 8):
+                block = data[start : start + CHUNK_BYTES * 8].tobytes()
+                if endian == "little":
+                    block = block.translate(_REVERSE)
+                normalized._set_bytes(start // 8, block)
+            data = normalized
         self.num_hash_functions = num_hash_functions
         self.data = data
         self.strategy = strategy
@@ -110,6 +144,8 @@ class BloomFilter:
         array: bytes,
         funnel: Funnel = LEGACY_FUNNEL,
         max_num_bits: typing.Optional[int] = None,
+        *,
+        backend: str = "python",
     ) -> "BloomFilter":
         """
         Initialize Bloomfilter instance given dump bytes.
@@ -130,7 +166,7 @@ class BloomFilter:
                 f"Invalid serialized BloomFilter length: expected "
                 f"{expected_length} bytes, got {len(array)}"
             )
-        return cls.read_from(io.BytesIO(array), funnel, max_num_bits)
+        return cls.read_from(io.BytesIO(array), funnel, max_num_bits, backend=backend)
 
     @classmethod
     def _parse_header(
@@ -138,6 +174,7 @@ class BloomFilter:
     ) -> typing.Tuple[typing.Type[Strategy], int, int, int]:
         if max_num_bits is None:
             max_num_bits = cls.MAX_NUM_BITS
+        max_num_bits = operator.index(max_num_bits)
         if max_num_bits < 0:
             raise ValueError("Maximum number of bits must be >= 0")
         if len(array) < cls._SERIALIZED_HEADER_SIZE:
@@ -177,6 +214,8 @@ class BloomFilter:
             chunk = stream.read(size - len(result))
             if not chunk:
                 raise ValueError("Truncated serialized BloomFilter stream")
+            if len(chunk) > size - len(result):
+                raise OSError("BloomFilter stream read exceeded requested size")
             result.extend(chunk)
         return bytes(result)
 
@@ -186,26 +225,25 @@ class BloomFilter:
         stream: typing.BinaryIO,
         funnel: Funnel = LEGACY_FUNNEL,
         max_num_bits: typing.Optional[int] = None,
+        *,
+        backend: str = "python",
     ) -> "BloomFilter":
         """Read one Guava compact filter, leaving trailing stream data unread.
 
         Validate the header and allocation limit before reading the payload.
         The caller retains ownership of the stream.
         """
+        backend = validate_backend(backend)
         header = cls._read_exact(stream, cls._SERIALIZED_HEADER_SIZE)
         strategy, num_hash_functions, expected_length, limit = cls._parse_header(
             header, max_num_bits
         )
 
-        data = bitarray()
-        for _ in range(
-            cls._SERIALIZED_HEADER_SIZE,
-            expected_length,
-            cls._BYTES_PER_DATA_WORD,
-        ):
-            entry = bitarray()
-            entry.frombytes(cls._read_exact(stream, cls._BYTES_PER_DATA_WORD))
-            data += entry[::-1]
+        payload_size = expected_length - cls._SERIALIZED_HEADER_SIZE
+        data = BitArray(payload_size * 8, backend=backend)
+        for offset in range(0, payload_size, CHUNK_BYTES):
+            block = cls._read_exact(stream, min(CHUNK_BYTES, payload_size - offset))
+            data.set_guava_chunk(offset, block)
         instance = cls.__new__(cls)
         instance.max_num_bits = limit
         instance.setup(num_hash_functions, data, strategy, funnel)
@@ -217,6 +255,8 @@ class BloomFilter:
         hex_str: str,
         funnel: Funnel = LEGACY_FUNNEL,
         max_num_bits: typing.Optional[int] = None,
+        *,
+        backend: str = "python",
     ) -> "BloomFilter":
         """
         Initialize Bloomfilter instance from hex string.
@@ -257,7 +297,9 @@ class BloomFilter:
             data.extend(decoded)
         if pending:
             raise ValueError("Incomplete hexadecimal byte")
-        return cls.loads(bytes(data), funnel=funnel, max_num_bits=max_num_bits)
+        return cls.loads(
+            bytes(data), funnel=funnel, max_num_bits=max_num_bits, backend=backend
+        )
 
     @classmethod
     def loads_from_base64(
@@ -265,6 +307,8 @@ class BloomFilter:
         base64_encoded_bytes: bytes,
         funnel: Funnel = LEGACY_FUNNEL,
         max_num_bits: typing.Optional[int] = None,
+        *,
+        backend: str = "python",
     ) -> "BloomFilter":
         """
         Initialize Bloomfilter instance from base64 encoded bytes.
@@ -308,7 +352,9 @@ class BloomFilter:
             decoded = base64.b64decode(encoded, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("Invalid Base64-encoded BloomFilter") from exc
-        return cls.loads(decoded, funnel=funnel, max_num_bits=max_num_bits)
+        return cls.loads(
+            decoded, funnel=funnel, max_num_bits=max_num_bits, backend=backend
+        )
 
     def dumps(self) -> bytes:
         """
@@ -328,19 +374,24 @@ class BloomFilter:
             (len(self.data) // self._BITS_PER_DATA_WORD).to_bytes(4, byteorder="big")
         )
         self._write_exact(stream, bytes(result))
-        for i in range(0, len(self.data), self._BITS_PER_DATA_WORD):
-            self._write_exact(
-                stream, self.data[i : i + self._BITS_PER_DATA_WORD][::-1].tobytes()
-            )
+        for chunk in self.data.iter_guava_chunks():
+            self._write_exact(stream, chunk)
 
     @staticmethod
     def _write_exact(stream: typing.BinaryIO, data: bytes) -> None:
         offset = 0
-        while offset < len(data):
-            written = stream.write(data[offset:])
-            if written is None or written <= 0:
-                raise OSError("BloomFilter stream write made no progress")
-            offset += written
+        view = memoryview(data)
+        while offset < len(view):
+            written = stream.write(view[offset:])
+            try:
+                count = operator.index(written)
+            except TypeError as exc:
+                raise OSError(
+                    "BloomFilter stream write returned an invalid count"
+                ) from exc
+            if count <= 0 or count > len(view) - offset:
+                raise OSError("BloomFilter stream write made no valid progress")
+            offset += count
 
     def serialized_size(self) -> int:
         """Return the compact serialized byte size without allocating a dump."""
@@ -428,9 +479,15 @@ class BloomFilter:
         """
         if err_rate == 0:
             err_rate = 2 ** (-1074)  # the same number of Double.MIN_VALUE in Java
-        return int(
-            -expected_insertions * math.log(err_rate) / (math.log(2) * math.log(2))
-        )
+        try:
+            result = (
+                -expected_insertions * math.log(err_rate) / (math.log(2) * math.log(2))
+            )
+        except OverflowError as exc:
+            raise ValueError("BloomFilter sizing exceeds supported range") from exc
+        if not math.isfinite(result):
+            raise ValueError("BloomFilter sizing exceeds supported range")
+        return int(result)
 
     @classmethod
     def num_of_hash_functions(cls, expected_insertions: int, num_bits: int) -> int:

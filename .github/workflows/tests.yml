@@ -1,62 +1,86 @@
-# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
-# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
-
 name: Tests
 on: [push, pull_request]
 
-jobs:
-  build:
+permissions:
+  contents: read
 
+jobs:
+  test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
-
+        backend: [python, native]
     steps:
     - uses: actions/checkout@v7
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v7
+    - uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+    - name: Install without runtime dependencies
+      if: matrix.backend == 'python'
       run: |
-        python -m pip install --upgrade pip
-        python -m pip install .
-        python -m pip install pytest pytest-cov
-    - name: Unit tests
+        python -m pip install . pytest pytest-cov
+        python -S -m unittest discover
+    - name: Install optional acceleration
+      if: matrix.backend == 'native'
+      run: python -m pip install '.[native]' pytest pytest-cov
+    - name: Backend parity and regression tests
+      run: python -m pytest --cov=bloomfilter --cov-report=xml
+    - name: Test installed package outside source path
+      env:
+        TEST_BACKEND: ${{ matrix.backend }}
       run: |
-        pytest --cov=bloomfilter --cov-report=xml
-    - name: "Upload coverage to Codecov"
-      uses: codecov/codecov-action@v4
+        python -I -c 'import os; from bloomfilter import BloomFilter; b=BloomFilter(100,.01,backend=os.environ["TEST_BACKEND"]); b.put("smoke"); assert "smoke" in BloomFilter.loads(b.dumps(),backend=b.backend)'
+    - name: Require complete coverage for the reference environment
+      if: matrix.python-version == '3.14' && matrix.backend == 'native'
+      run: python -m coverage report --fail-under=100
+    - uses: codecov/codecov-action@v4
+      if: matrix.python-version == '3.14' && matrix.backend == 'native'
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: true
 
-  guava-interop:
+  package:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
-    - name: Set up Python
-      uses: actions/setup-python@v7
+    - uses: actions/setup-python@v7
       with:
         python-version: '3.14'
-    - name: Set up Java
-      uses: actions/setup-java@v5
+    - run: python -m pip install build
+    - run: python -m build
+    - name: Verify distributions and offline clean installation
+      run: python scripts/verify_distribution.py dist
+    - uses: actions/upload-artifact@v4
+      with:
+        name: distributions
+        path: dist/*
+
+  guava-interop:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        backend: [python, native]
+    steps:
+    - uses: actions/checkout@v7
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.14'
+    - uses: actions/setup-java@v5
       with:
         distribution: temurin
         java-version: '17'
-    - name: Install Python package
-      run: |
-        python -m pip install --upgrade pip
-        python -m pip install . pytest
-    - name: Download Guava 33.7.2
+    - name: Install package and optional acceleration
+      run: python -m pip install '.[native]' pytest
+    - name: Download and verify Guava 33.7.2
       run: |
         curl --fail --location --silent --show-error \
-          --output "$RUNNER_TEMP/guava-33.7.2-jre.jar" \
-          https://repo1.maven.org/maven2/com/google/guava/guava/33.7.2-jre/guava-33.7.2-jre.jar
-        echo "b530942257fb935f8b2cfaa5f8eb5bd59c555fd8e8d01b8ce98912e077ea606c  $RUNNER_TEMP/guava-33.7.2-jre.jar" \
-          | sha256sum --check
-    - name: Bidirectional Guava interoperability tests
+          --output "$RUNNER_TEMP/guava.jar" \
+          https://repo.maven.apache.org/maven2/com/google/guava/guava/33.7.2-jre/guava-33.7.2-jre.jar
+        echo "b530942257fb935f8b2cfaa5f8eb5bd59c555fd8e8d01b8ce98912e077ea606c  $RUNNER_TEMP/guava.jar" | sha256sum --check
+    - name: Bidirectional integration tests
       env:
-        GUAVA_JAR: ${{ runner.temp }}/guava-33.7.2-jre.jar
-      run: pytest -v tests/test_guava_interop.py
+        GUAVA_JAR: ${{ runner.temp }}/guava.jar
+        BLOOMFILTER_TEST_BACKEND: ${{ matrix.backend }}
+      run: python -m pytest -v tests/test_guava_interop.py
